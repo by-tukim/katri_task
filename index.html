@@ -126,6 +126,11 @@
       background: #059669; color: #fff; border: none;
       padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
     }
+    .btn-reset {
+      background: #e2e8f0; color: #334155; border: 1px solid #cbd5e1;
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-reset:hover { background: #cbd5e1; }
 
     /* 테이블 컨테이너 (가로 스크롤 및 첫 열 고정) */
     .table-wrap {
@@ -306,6 +311,7 @@
     </select>
 
     <input type="text" id="searchInput" placeholder="제작사, 차명, 시험항목, 진행사항 검색..." oninput="renderTable()" />
+    <button type="button" class="btn-reset" onclick="resetFilters()">🔄 초기화</button>
     <button class="btn-primary" onclick="openModal()">+ 신규 등록</button>
     <button id="seedBtn" class="btn-seed" style="display:none;" onclick="seedInitialData()">📤 엑셀 초기데이터(94건) DB 업로드</button>
   </div>
@@ -449,6 +455,17 @@
       btn.disabled = false;
       btn.textContent = '📤 엑셀 초기데이터(94건) DB 업로드';
     }
+  };
+
+  // 모든 필터 및 검색어 초기화
+  window.resetFilters = function() {
+    document.getElementById('yearFilter').value = '';
+    document.getElementById('sigyeStatusFilter').value = '';
+    document.getElementById('glassBreakFilter').value = '';
+    document.getElementById('glassHeadFilter').value = '';
+    document.getElementById('searchInput').value = '';
+    renderTable();
+    showToast('필터가 초기화되었습니다');
   };
 
   // 탭 전환 및 탭별 필터 UI 제어
