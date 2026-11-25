@@ -343,6 +343,9 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import {
+    getAuth, signInAnonymously, signOut
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import {
     getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, writeBatch, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -358,6 +361,7 @@
   };
 
   const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
   const db = getFirestore(app);
 
   // 2. 초기 엑셀 데이터 (94건)
@@ -372,30 +376,96 @@
   let store = { sigye: [], glass: [], belt: [] };
   let isSeededCheckDone = { sigye: false, glass: false, belt: false };
 
-  // 비밀번호 잠금 로직
-  const PASSCODE = "0361";
-  window.checkPassword = function() {
-    const val = document.getElementById('pwInput').value.trim();
-    if (val === PASSCODE) {
+  let listenersStarted = false;
+  let unsubscribers = [];
+
+  function startRealtimeListeners() {
+    if (listenersStarted) return;
+    listenersStarted = true;
+    ['sigye', 'glass', 'belt'].forEach(colName => {
+      const unsub = onSnapshot(collection(db, `records_${colName}`), (snap) => {
+        document.getElementById('syncDot').classList.remove('offline');
+        document.getElementById('syncText').textContent = '실시간 동기화됨';
+
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (a.order ?? -1) - (b.order ?? -1));
+        store[colName] = list;
+        isSeededCheckDone[colName] = true;
+
+        document.getElementById(`cnt-${colName}`).textContent = list.length;
+
+        const allChecked = isSeededCheckDone.sigye && isSeededCheckDone.glass && isSeededCheckDone.belt;
+        const totalCount = store.sigye.length + store.glass.length + store.belt.length;
+        document.getElementById('seedBtn').style.display = (allChecked && totalCount === 0) ? 'inline-block' : 'none';
+
+        if (currentTab === colName) {
+          renderTable();
+        }
+      }, (err) => {
+        console.error(err);
+        document.getElementById('syncDot').classList.add('offline');
+        document.getElementById('syncText').textContent = '권한/연결 오류';
+      });
+      unsubscribers.push(unsub);
+    });
+  }
+
+  function stopRealtimeListeners() {
+    unsubscribers.forEach(u => u());
+    unsubscribers = [];
+    listenersStarted = false;
+    store = { sigye: [], glass: [], belt: [] };
+    isSeededCheckDone = { sigye: false, glass: false, belt: false };
+    document.getElementById('dataTable').innerHTML = '';
+    document.getElementById('summaryBar').innerHTML = '';
+  }
+
+  async function unlockAndAuthenticate() {
+    const errEl = document.getElementById('lockErr');
+    const btnEl = document.querySelector('.lock-btn');
+    btnEl.disabled = true;
+    btnEl.textContent = '인증 확인 중...';
+    errEl.textContent = '';
+    try {
+      await signInAnonymously(auth);
       sessionStorage.setItem('auth_ok', '1');
       document.getElementById('lockScreen').style.display = 'none';
-      document.getElementById('lockErr').textContent = '';
+      startRealtimeListeners();
+    } catch (e) {
+      console.error(e);
+      errEl.textContent = 'Firebase 익명 인증 오류: 콘솔에서 익명 로그인을 활성화해주세요.';
+      sessionStorage.removeItem('auth_ok');
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = '접속하기';
+    }
+  }
+
+  // 비밀번호 잠금 로직
+  const PASSCODE = "0361";
+  window.checkPassword = async function() {
+    const val = document.getElementById('pwInput').value.trim();
+    if (val === PASSCODE) {
+      await unlockAndAuthenticate();
     } else {
       document.getElementById('lockErr').textContent = '비밀번호가 일치하지 않습니다.';
       document.getElementById('pwInput').value = '';
       document.getElementById('pwInput').focus();
     }
   };
-  window.lockApp = function() {
+  window.lockApp = async function() {
     sessionStorage.removeItem('auth_ok');
+    stopRealtimeListeners();
+    try { await signOut(auth); } catch (e) {}
     document.getElementById('pwInput').value = '';
+    document.getElementById('lockErr').textContent = '';
     document.getElementById('lockScreen').style.display = 'flex';
   };
   document.getElementById('pwInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') window.checkPassword();
   });
   if (sessionStorage.getItem('auth_ok') === '1') {
-    document.getElementById('lockScreen').style.display = 'none';
+    unlockAndAuthenticate();
   }
 
   // 토스트 알림
@@ -406,33 +476,6 @@
     clearTimeout(window._toastTimer);
     window._toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
   }
-
-  // 실시간 리스너 등록 (3개 컬렉션)
-  ['sigye', 'glass', 'belt'].forEach(colName => {
-    onSnapshot(collection(db, `records_${colName}`), (snap) => {
-      document.getElementById('syncDot').classList.remove('offline');
-      document.getElementById('syncText').textContent = '실시간 동기화됨';
-
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      list.sort((a, b) => (a.order ?? -1) - (b.order ?? -1));
-      store[colName] = list;
-      isSeededCheckDone[colName] = true;
-
-      document.getElementById(`cnt-${colName}`).textContent = list.length;
-
-      const allChecked = isSeededCheckDone.sigye && isSeededCheckDone.glass && isSeededCheckDone.belt;
-      const totalCount = store.sigye.length + store.glass.length + store.belt.length;
-      document.getElementById('seedBtn').style.display = (allChecked && totalCount === 0) ? 'inline-block' : 'none';
-
-      if (currentTab === colName) {
-        renderTable();
-      }
-    }, (err) => {
-      console.error(err);
-      document.getElementById('syncDot').classList.add('offline');
-      document.getElementById('syncText').textContent = '연결 오류';
-    });
-  });
 
   // 초기 엑셀 데이터 일괄 업로드
   window.seedInitialData = async function() {
