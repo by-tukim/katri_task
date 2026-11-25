@@ -284,11 +284,27 @@
       <option value="2025">2025년</option>
       <option value="2024">2024년</option>
     </select>
-    <select id="statusFilter" onchange="renderTable()">
+
+    <!-- 1. 시계난연 전용 필터 -->
+    <select id="sigyeStatusFilter" onchange="renderTable()">
       <option value="">전체 상태</option>
-      <option value="대기중">대기중 / 진행중</option>
-      <option value="완료">완료 (100%)</option>
+      <option value="대기중">대기중</option>
+      <option value="진행중">진행중</option>
+      <option value="완료">완료</option>
     </select>
+
+    <!-- 2. 창유리 전용 필터 (파쇄, 머리낙하 완료/미완료) -->
+    <select id="glassBreakFilter" style="display:none;" onchange="renderTable()">
+      <option value="">파쇄: 전체</option>
+      <option value="done">파쇄: 완료</option>
+      <option value="undone">파쇄: 미완료</option>
+    </select>
+    <select id="glassHeadFilter" style="display:none;" onchange="renderTable()">
+      <option value="">머리낙하: 전체</option>
+      <option value="done">머리낙하: 완료</option>
+      <option value="undone">머리낙하: 미완료</option>
+    </select>
+
     <input type="text" id="searchInput" placeholder="제작사, 차명, 시험항목, 진행사항 검색..." oninput="renderTable()" />
     <button class="btn-primary" onclick="openModal()">+ 신규 등록</button>
     <button id="seedBtn" class="btn-seed" style="display:none;" onclick="seedInitialData()">📤 엑셀 초기데이터(94건) DB 업로드</button>
@@ -392,14 +408,12 @@
       document.getElementById('syncText').textContent = '실시간 동기화됨';
 
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // 기본 정렬: order 인덱스 순, 신규 항목은 최상단
       list.sort((a, b) => (a.order ?? -1) - (b.order ?? -1));
       store[colName] = list;
       isSeededCheckDone[colName] = true;
 
       document.getElementById(`cnt-${colName}`).textContent = list.length;
 
-      // DB가 완전히 비어 있을 경우 초기 데이터 업로드 버튼 표시
       const allChecked = isSeededCheckDone.sigye && isSeededCheckDone.glass && isSeededCheckDone.belt;
       const totalCount = store.sigye.length + store.glass.length + store.belt.length;
       document.getElementById('seedBtn').style.display = (allChecked && totalCount === 0) ? 'inline-block' : 'none';
@@ -437,12 +451,18 @@
     }
   };
 
-  // 탭 전환
+  // 탭 전환 및 탭별 필터 UI 제어
   window.switchTab = function(tab) {
     currentTab = tab;
     document.querySelectorAll('.tab-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
+
+    // 탭에 따라 필터 드롭다운 표시/숨김 처리
+    document.getElementById('sigyeStatusFilter').style.display = (tab === 'sigye') ? 'inline-block' : 'none';
+    document.getElementById('glassBreakFilter').style.display = (tab === 'glass') ? 'inline-block' : 'none';
+    document.getElementById('glassHeadFilter').style.display = (tab === 'glass') ? 'inline-block' : 'none';
+
     renderTable();
   };
 
@@ -453,13 +473,12 @@
     return Math.round((done / steps.length) * 100);
   }
 
-  // 동그라미 체크 토글 (클릭 시 ○ <-> ● 전환, 부적합 상태는 우클릭/모달로도 변경 가능)
+  // 동그라미 체크 토글
   window.toggleStep = async function(id, stepIdx) {
     const item = store[currentTab].find(x => x.id === id);
     if (!item) return;
     const newSteps = [...item.steps];
     const cur = newSteps[stepIdx];
-    // 부적합 -> ○ -> ● -> ○ 순환
     if (cur === '●') newSteps[stepIdx] = '○';
     else newSteps[stepIdx] = '●';
 
@@ -490,7 +509,9 @@
   window.renderTable = function() {
     const list = store[currentTab] || [];
     const yr = document.getElementById('yearFilter').value;
-    const st = document.getElementById('statusFilter').value;
+    const sigyeSt = document.getElementById('sigyeStatusFilter').value;
+    const glassBreak = document.getElementById('glassBreakFilter').value;
+    const glassHead = document.getElementById('glassHeadFilter').value;
     const kw = document.getElementById('searchInput').value.trim().toLowerCase();
 
     // 요약 통계 계산 (전체 기준)
@@ -520,16 +541,27 @@
     // 필터 적용
     const filtered = list.filter(item => {
       if (yr && String(item.year) !== yr) return false;
-      if (st) {
-        if (currentTab === 'sigye') {
-          if (st === '완료' && item.status !== '완료') return false;
-          if (st === '대기중' && item.status === '완료') return false;
-        } else {
-          const p = calcProgress(item.steps);
-          if (st === '완료' && p < 100) return false;
-          if (st === '대기중' && p === 100) return false;
+
+      if (currentTab === 'sigye' && sigyeSt) {
+        const curSt = item.status || '대기중';
+        if (curSt !== sigyeSt) return false;
+      }
+
+      if (currentTab === 'glass') {
+        const steps = item.steps || [];
+        // 인덱스 11: 파쇄, 인덱스 12: 머리낙하 ('●'면 완료, 그 외 '○'/'부적합'은 미완료)
+        if (glassBreak) {
+          const isBreakDone = steps[11] === '●';
+          if (glassBreak === 'done' && !isBreakDone) return false;
+          if (glassBreak === 'undone' && isBreakDone) return false;
+        }
+        if (glassHead) {
+          const isHeadDone = steps[12] === '●';
+          if (glassHead === 'done' && !isHeadDone) return false;
+          if (glassHead === 'undone' && isHeadDone) return false;
         }
       }
+
       if (kw) {
         const hay = `${item.year} ${item.maker} ${item.model} ${item.item} ${item.note || ''} ${item.inTeam || ''} ${item.outTeam || ''}`.toLowerCase();
         if (!hay.includes(kw)) return false;
@@ -603,7 +635,6 @@
       html += `</tbody>`;
       table.innerHTML = html;
     } else if (currentTab === 'belt') {
-      // 엑셀 열 순서 유지: 0..7단계 -> 동하중인계일 -> 8..9단계
       let html = `<thead><tr>
         <th class="sticky-col">차명</th>
         <th>연도</th><th>제작사</th><th>시험항목</th><th>진행사항</th><th>진행률</th>
