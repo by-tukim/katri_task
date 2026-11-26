@@ -52,7 +52,7 @@
     }
     .lock-input:focus { border-color: var(--primary-light); }
     .lock-btn {
-      width: 100%; padding: 14px; touch-action: manipulation; -webkit-appearance: none; background: var(--primary); color: #fff;
+      width: 100%; padding: 12px; background: var(--primary); color: #fff;
       border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
     }
     .lock-err { color: var(--fail); font-size: 12px; margin-top: 8px; min-height: 16px; }
@@ -135,32 +135,29 @@
     }
     .btn-reset:hover { background: #cbd5e1; }
 
-    /* 테이블 컨테이너 (가로/세로 스크롤 및 틀 고정) */
+    /* 테이블 컨테이너 (가로 스크롤 및 첫 열 고정) */
     .table-wrap {
       background: var(--card); border-radius: 12px; border: 1px solid #e2e8f0;
-      overflow: auto; max-height: calc(100vh - 185px);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-      -webkit-overflow-scrolling: touch; position: relative;
+      overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      -webkit-overflow-scrolling: touch;
     }
     table {
-      width: 100%; border-collapse: separate; border-spacing: 0; white-space: nowrap; font-size: 13px;
+      width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 13px;
     }
     th, td {
-      padding: 9px 8px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #f1f5f9;
-      text-align: center; background-clip: padding-box;
+      padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center;
     }
     th {
       background: #f8fafc; color: #334155; font-weight: 700; font-size: 12px;
-      position: sticky; top: 0; z-index: 20; border-bottom: 2px solid #cbd5e1;
+      position: sticky; top: 0; z-index: 10; border-bottom: 2px solid #cbd5e1;
     }
     /* 모바일/PC 가로 스크롤 시 차명 고정 */
     th.sticky-col, td.sticky-col {
-      position: sticky; left: 0; z-index: 10; background: #fff;
-      border-right: 2px solid #e2e8f0;
-      box-shadow: 2px 0 5px rgba(15,23,42,0.06);
+      position: sticky; left: 0; z-index: 5; background: #fff;
+      box-shadow: 2px 0 4px rgba(0,0,0,0.04);
       font-weight: 700; text-align: left; padding-left: 10px;
     }
-    th.sticky-col { background: #f8fafc; z-index: 30; }
+    th.sticky-col { background: #f8fafc; z-index: 15; }
     tr:hover td { background: #f8fafc; }
     tr:hover td.sticky-col { background: #f1f5f9; }
 
@@ -305,24 +302,11 @@
       padding: 6px 6px;
       vertical-align: middle;
     }
-    .sched-table th:nth-child(1),
     .sched-table td.pos-col {
-      position: sticky; left: 0; z-index: 10;
       font-weight: 700; background: #f8fafc; color: #1e293b;
     }
-    .sched-table th:nth-child(2),
     .sched-table td.part-col {
-      position: sticky; left: 74px; z-index: 10;
-      font-weight: 600; background: #fff; color: #334155; text-align: left; padding-left: 10px;
-      border-right: 2px solid #e2e8f0; box-shadow: 2px 0 5px rgba(15,23,42,0.06);
-    }
-    .sched-table th:nth-child(1),
-    .sched-table th:nth-child(2) {
-      z-index: 30; background: #f8fafc;
-    }
-    tr:hover td.pos-col,
-    tr:hover td.part-col {
-      background: #f1f5f9;
+      font-weight: 600; color: #334155; text-align: left; padding-left: 10px;
     }
     .sched-legend {
       display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: #475569;
@@ -341,38 +325,11 @@
   <div class="lock-box">
     <h2>🔒 시험 진행실적 DB</h2>
     <p>팀 공용 접속 비밀번호를 입력하세요</p>
-    <form id="lockForm" action="javascript:void(0);" onsubmit="checkPassword(event)">
-      <input type="password" id="pwInput" class="lock-input" inputmode="numeric" pattern="[0-9]*" maxlength="10" placeholder="••••" autocomplete="off" />
-      <button type="submit" id="lockSubmitBtn" class="lock-btn">접속하기</button>
-    </form>
+    <input type="password" id="pwInput" class="lock-input" inputmode="numeric" maxlength="10" placeholder="••••" autofocus />
+    <button class="lock-btn" onclick="checkPassword()">접속하기</button>
     <div id="lockErr" class="lock-err"></div>
   </div>
 </div>
-<script>
-  window.checkPassword = function(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    var inputEl = document.getElementById('pwInput');
-    var errEl = document.getElementById('lockErr');
-    var raw = (inputEl.value || '').trim();
-    var val = raw.replace(/[０-９]/g, function(s) { return String.fromCharCode(s.charCodeAt(0) - 0xFEE0); }).replace(/\s+/g, '');
-    if (val === '0361') {
-      window._authOk = true;
-      try { sessionStorage.setItem('auth_ok', '1'); localStorage.setItem('auth_ok', '1'); } catch (err) {}
-      inputEl.blur();
-      document.getElementById('lockScreen').style.display = 'none';
-      errEl.textContent = '';
-    } else {
-      errEl.textContent = val ? '비밀번호가 일치하지 않습니다.' : '비밀번호를 입력해주세요.';
-      inputEl.value = '';
-      inputEl.focus();
-    }
-  };
-  try {
-    if (sessionStorage.getItem('auth_ok') === '1' || localStorage.getItem('auth_ok') === '1') {
-      document.getElementById('lockScreen').style.display = 'none';
-    }
-  } catch (err) {}
-</script>
 
 <header>
   <div class="header-top">
@@ -501,62 +458,29 @@
   let store = { sigye: [], glass: [], belt: [], schedule: [] };
   let isSeededCheckDone = { sigye: false, glass: false, belt: false, schedule: false };
 
-  // 비밀번호 잠금 로직 (모바일/사파리/인앱브라우저 완벽 호환)
+  // 비밀번호 잠금 로직
   const PASSCODE = "0361";
-  function isAuthOk() {
-    try { return sessionStorage.getItem('auth_ok') === '1' || localStorage.getItem('auth_ok') === '1'; }
-    catch (e) { return window._authOk === true; }
-  }
-  function setAuthOk(flag) {
-    window._authOk = flag;
-    try {
-      if (flag) {
-        sessionStorage.setItem('auth_ok', '1');
-        localStorage.setItem('auth_ok', '1');
-      } else {
-        sessionStorage.removeItem('auth_ok');
-        localStorage.removeItem('auth_ok');
-      }
-    } catch (e) {}
-  }
-  window.checkPassword = function(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    const inputEl = document.getElementById('pwInput');
-    const errEl = document.getElementById('lockErr');
-    const raw = (inputEl.value || '').trim();
-    // 전각 숫자 등 혹시 모를 입력 보정 및 공백 제거
-    const val = raw.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/\s+/g, '');
+  window.checkPassword = function() {
+    const val = document.getElementById('pwInput').value.trim();
     if (val === PASSCODE) {
-      setAuthOk(true);
-      inputEl.blur();
+      sessionStorage.setItem('auth_ok', '1');
       document.getElementById('lockScreen').style.display = 'none';
-      errEl.textContent = '';
+      document.getElementById('lockErr').textContent = '';
     } else {
-      errEl.textContent = val ? '비밀번호가 일치하지 않습니다.' : '비밀번호를 입력해주세요.';
-      inputEl.value = '';
-      inputEl.focus();
+      document.getElementById('lockErr').textContent = '비밀번호가 일치하지 않습니다.';
+      document.getElementById('pwInput').value = '';
+      document.getElementById('pwInput').focus();
     }
   };
   window.lockApp = function() {
-    setAuthOk(false);
+    sessionStorage.removeItem('auth_ok');
     document.getElementById('pwInput').value = '';
-    document.getElementById('lockErr').textContent = '';
     document.getElementById('lockScreen').style.display = 'flex';
   };
   document.getElementById('pwInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.keyCode === 13) {
-      e.preventDefault();
-      window.checkPassword(e);
-    }
+    if (e.key === 'Enter') window.checkPassword();
   });
-  document.getElementById('pwInput').addEventListener('input', () => {
-    const inputEl = document.getElementById('pwInput');
-    const val = (inputEl.value || '').trim();
-    if (val === PASSCODE) {
-      window.checkPassword();
-    }
-  });
-  if (isAuthOk()) {
+  if (sessionStorage.getItem('auth_ok') === '1') {
     document.getElementById('lockScreen').style.display = 'none';
   }
 
