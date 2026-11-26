@@ -331,6 +331,44 @@
     .legend-chip {
       display: inline-flex; align-items: center; gap: 4px; font-weight: 700;
     }
+    .sched-action-group {
+      display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    }
+    .btn-sched-sub {
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+      padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn-sched-sub:hover { background: #dbeafe; }
+    .btn-sched-del {
+      background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;
+      padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn-sched-del:hover { background: #fee2e2; }
+    .sched-cell-wrap {
+      display: flex; align-items: center; gap: 4px; width: 100%;
+    }
+    .sched-cell-edit-btn {
+      background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;
+      color: #64748b; cursor: pointer; font-size: 11px; padding: 4px 5px;
+      flex-shrink: 0; line-height: 1;
+    }
+    .sched-cell-edit-btn:hover { background: #e2e8f0; color: #0f172a; }
+    .sched-empty-cell {
+      width: 100%; min-height: 30px; border: 1px dashed transparent; border-radius: 6px;
+      background: transparent; color: transparent; cursor: pointer; font-size: 12px;
+      display: inline-flex; align-items: center; justify-content: center; transition: 0.15s;
+    }
+    td:hover .sched-empty-cell, .sched-empty-cell:hover {
+      border-color: #cbd5e1; background: #f1f5f9; color: #64748b;
+    }
+    .sched-row-actions {
+      display: inline-flex; gap: 2px; align-items: center; justify-content: center;
+    }
+    .sched-row-btn {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px;
+      cursor: pointer; font-size: 12px; padding: 3px 5px; color: #475569;
+    }
+    .sched-row-btn:hover { background: #e2e8f0; color: #1e3a8a; }
 
   </style>
 </head>
@@ -341,9 +379,9 @@
   <div class="lock-box">
     <h2>🔒 시험 진행실적 DB</h2>
     <p>팀 공용 접속 비밀번호를 입력하세요</p>
-    <form id="lockForm" novalidate onsubmit="return checkPassword(event);">
-      <input type="password" id="pwInput" class="lock-input" inputmode="numeric" maxlength="10" placeholder="••••" autocomplete="off" />
-      <button type="button" id="lockSubmitBtn" class="lock-btn" onclick="checkPassword(event)">접속하기</button>
+    <form id="lockForm" action="javascript:void(0);" onsubmit="checkPassword(event)">
+      <input type="password" id="pwInput" class="lock-input" inputmode="numeric" pattern="[0-9]*" maxlength="10" placeholder="••••" autocomplete="off" />
+      <button type="submit" id="lockSubmitBtn" class="lock-btn">접속하기</button>
     </form>
     <div id="lockErr" class="lock-err"></div>
   </div>
@@ -366,13 +404,7 @@
       inputEl.value = '';
       inputEl.focus();
     }
-    return false;
   };
-  document.getElementById('pwInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' || e.keyCode === 13) {
-      checkPassword(e);
-    }
-  });
   try {
     if (sessionStorage.getItem('auth_ok') === '1' || localStorage.getItem('auth_ok') === '1') {
       document.getElementById('lockScreen').style.display = 'none';
@@ -442,7 +474,7 @@
 
     <input type="text" id="searchInput" placeholder="제작사, 차명, 시험항목, 진행사항 검색..." oninput="renderTable()" />
     <button type="button" class="btn-reset" onclick="resetFilters()">🔄 초기화</button>
-    <button class="btn-primary" onclick="openModal()">+ 신규 등록</button>
+    <button id="mainAddBtn" class="btn-primary" onclick="handleMainAddClick()">+ 신규 등록</button>
     <button id="seedBtn" class="btn-seed" style="display:none;" onclick="seedInitialData()">📤 엑셀 초기데이터(94건) DB 업로드</button>
   </div>
 
@@ -471,12 +503,171 @@
   </div>
 </div>
 
+<!-- 시험일정표: 신규 차량 등록 모달 -->
+<div class="modal-backdrop" id="schedVehicleModal">
+  <div class="modal">
+    <h3>🚗 시험일정표 신규 차량 추가</h3>
+    <form id="schedVehicleForm" onsubmit="saveScheduleVehicle(event)">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>조사년도 *</label>
+          <input type="text" id="sv_year" value="2026" placeholder="예: 2026" required />
+        </div>
+        <div class="form-group">
+          <label>차명 *</label>
+          <input type="text" id="sv_carName" placeholder="예: 쏘렌토, GV80" required />
+        </div>
+        <div class="form-group full">
+          <label>표시 제목 (미입력 시 '연도 차명' 자동 생성)</label>
+          <input type="text" id="sv_title" placeholder="예: 26 쏘렌토" />
+        </div>
+        <div class="form-group full">
+          <label>초기 시험 항목 템플릿 구성</label>
+          <select id="sv_template">
+            <option value="standard">표준 좌석안전띠 시험일정 템플릿 복사 (1열LH, 2열LH/CTR, 공통 안전띠)</option>
+            <option value="empty">빈 일정표로 시작 (직접 행 추가)</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label>시험일 컬럼 수 (기본 14일)</label>
+          <input type="number" id="sv_days" value="14" min="1" max="30" required />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-cancel" onclick="closeSchedVehicleModal()">취소</button>
+        <button type="submit" class="btn-primary">차량 추가</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 시험일정표: 행(좌석위치 / 부품 / 부품번호) 추가·수정 모달 -->
+<div class="modal-backdrop" id="schedRowModal">
+  <div class="modal">
+    <h3 id="schedRowModalTitle">시험일정 행 추가</h3>
+    <form id="schedRowForm" onsubmit="saveScheduleRow(event)">
+      <input type="hidden" id="sr_rowIdx" value="-1" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>좌석위치 *</label>
+          <input type="text" id="sr_pos" list="posSuggestions" placeholder="예: 1열LH, 2열CTR, 공통" required />
+          <datalist id="posSuggestions">
+            <option value="1열LH"></option>
+            <option value="1열RH"></option>
+            <option value="2열LH"></option>
+            <option value="2열CTR"></option>
+            <option value="2열RH"></option>
+            <option value="3열LH"></option>
+            <option value="3열RH"></option>
+            <option value="승객석"></option>
+            <option value="공통"></option>
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label>부품번호 *</label>
+          <input type="text" id="sr_partNo" placeholder="예: 1, 2, 3" required />
+        </div>
+        <div class="form-group full">
+          <label>부품명 *</label>
+          <input type="text" id="sr_part" list="partSuggestions" placeholder="예: 리트랙터(3점식), 버클, 안전띠" required />
+          <datalist id="partSuggestions">
+            <option value="리트랙터(3점식)"></option>
+            <option value="리트랙터(비잠금)"></option>
+            <option value="버클"></option>
+            <option value="부착구  및  높이조절장치"></option>
+            <option value="프리텐셔너"></option>
+            <option value="패치브라켓"></option>
+            <option value="안전띠"></option>
+          </datalist>
+        </div>
+        <div class="form-group full" id="sr_insertPosGroup">
+          <label>추가 위치</label>
+          <select id="sr_insertAfter">
+            <option value="end">테이블 맨 아래에 추가</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="sr_deleteBtn" class="btn-danger" onclick="deleteScheduleRow()">행 삭제</button>
+        <button type="button" class="btn-cancel" onclick="closeSchedRowModal()">취소</button>
+        <button type="submit" class="btn-primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 시험일정표: 시험항목(셀) 추가·수정 모달 -->
+<div class="modal-backdrop" id="schedCellModal">
+  <div class="modal">
+    <h3 id="schedCellModalTitle">시험항목 수정</h3>
+    <form id="schedCellForm" onsubmit="saveScheduleCell(event)">
+      <input type="hidden" id="sc_rowIdx" />
+      <input type="hidden" id="sc_cellIdx" />
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>대상 행 정보</label>
+          <input type="text" id="sc_rowInfo" disabled style="background:#f8fafc; color:#475569; font-weight:700;" />
+        </div>
+        <div class="form-group full">
+          <label>시험항목 내용 (비워두면 빈 칸으로 처리)</label>
+          <input type="text" id="sc_text" list="testTextSuggestions" placeholder="예: 인장강도, 내구성 (40000회), 부식성, 동하중" />
+          <datalist id="testTextSuggestions">
+            <option value="인장강도 (텅, D-ring 확보)"></option>
+            <option value="인장강도"></option>
+            <option value="G,T, 권입력"></option>
+            <option value="내구성 (40000회)"></option>
+            <option value="내구성 (5000회)"></option>
+            <option value="내구성 (500회)"></option>
+            <option value="부식성"></option>
+            <option value="분진, 내구성(5000회)"></option>
+            <option value="동하중"></option>
+            <option value="초기해리력"></option>
+            <option value="저온작동 (2시간)"></option>
+            <option value="부하해리력"></option>
+            <option value="안전띠 폭"></option>
+            <option value="초기인장"></option>
+            <option value="내열인장"></option>
+            <option value="내한인장"></option>
+            <option value="내수인장"></option>
+            <option value="내광조정"></option>
+            <option value="내광인장"></option>
+            <option value="텅마모조정"></option>
+            <option value="텅마모인장"></option>
+            <option value="링마모조정"></option>
+            <option value="링마모인장"></option>
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label>시작 시험일</label>
+          <select id="sc_startCol"></select>
+        </div>
+        <div class="form-group">
+          <label>병합 일수 (기간 칸 수)</label>
+          <input type="number" id="sc_colspan" min="1" max="14" value="1" required />
+        </div>
+        <div class="form-group full">
+          <label>진행 상태</label>
+          <select id="sc_status">
+            <option value="○">○ 미완료 (주황)</option>
+            <option value="●">● 완료 (초록)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="sc_clearBtn" class="btn-danger" onclick="clearScheduleCell()">항목 비우기</button>
+        <button type="button" class="btn-cancel" onclick="closeSchedCellModal()">취소</button>
+        <button type="submit" class="btn-primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="toast">저장되었습니다</div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import {
-    getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+    initializeFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, writeBatch, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -491,7 +682,10 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const db = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false
+  });
 
   // 2. 초기 엑셀 데이터 (94건)
   const SEED_DATA = {"sigye": [{"year": "2026", "maker": "기아", "model": "EV3", "item": "제95조_차실내장재연소성", "note": "", "inDate": "2026-10-26", "inTeam": "등화", "outDate": "2026-10-26", "outTeam": "배터리", "doneDate": "2026-11-10", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "포터2", "item": "제95조_차실내장재연소성", "note": "", "inDate": "2026-10-22", "inTeam": "충격", "outDate": "2026-10-26", "outTeam": "충돌", "doneDate": "2026-11-10", "status": "완료"}, {"year": "2026", "maker": "BMW", "model": "520i", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "다임러트럭", "model": "Actros", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus11", "item": "제50조_간접시계장치", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus11", "item": "제94조_운전자의시계범위", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus11", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "GS글로벌", "model": "eBus9", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "기아", "model": "스포티지", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-10-12", "inTeam": "연비", "outDate": "2026-10-13", "outTeam": "소음", "doneDate": "2026-10-13", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "팰리세이드", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-10-06", "inTeam": "환경", "outDate": "2026-10-12", "outTeam": "환경", "doneDate": "2026-10-07", "status": "완료"}, {"year": "2026", "maker": "볼보트럭", "model": "FH", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-10-01", "inTeam": "인증", "outDate": "2026-10-02", "outTeam": "미래", "doneDate": "2026-10-02", "status": "완료"}, {"year": "2026", "maker": "볼보트럭", "model": "FH", "item": "제50조_간접시계장치", "note": "개발시점 면제", "inDate": "2026-10-01", "inTeam": "인증", "outDate": "2026-10-02", "outTeam": "미래", "doneDate": "2026-10-01", "status": "완료"}, {"year": "2026", "maker": "GM", "model": "GMC Sierra", "item": "제95조_차실내장재연소성", "note": "", "inDate": "2026-09-07", "inTeam": "시계", "outDate": "2026-09-18", "outTeam": "충돌", "doneDate": "2026-10-01", "status": "완료"}, {"year": "2026", "maker": "볼보트럭", "model": "FH", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "르노", "model": "콜레오스", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-09-15", "inTeam": "소음", "outDate": "2026-09-18", "outTeam": "등화", "doneDate": "2026-09-18", "status": "완료"}, {"year": "2026", "maker": "기아", "model": "EV3", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-08-26", "inTeam": "환경", "outDate": "2026-09-09", "outTeam": "소음", "doneDate": "2026-09-09", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "G80", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "기아", "model": "EV3", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-08-26", "inTeam": "환경", "outDate": "2026-09-09", "outTeam": "소음", "doneDate": "2026-09-07", "status": "완료"}, {"year": "2026", "maker": "GM", "model": "GMC Sierra", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-08-27", "inTeam": "연비", "outDate": "2026-09-07", "outTeam": "난연", "doneDate": "2026-09-07", "status": "완료"}, {"year": "2026", "maker": "벤츠", "model": "GLE450", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "폭스바겐", "model": "ID.4", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-08-20", "inTeam": "소음", "outDate": "2026-09-18", "outTeam": "등화", "doneDate": "2026-09-07", "status": "완료"}, {"year": "2026", "maker": "GM", "model": "GMC Sierra", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-08-20", "inTeam": "등화", "outDate": "2026-08-24", "outTeam": "등화", "doneDate": "2026-08-24", "status": "완료"}, {"year": "2026", "maker": "GM", "model": "GMC Sierra", "item": "제53조의2_후방보행자안전장치", "note": "", "inDate": "2026-08-20", "inTeam": "등화", "outDate": "2026-08-20", "outTeam": "등화", "doneDate": "2026-08-20", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "카운티일렉트릭", "item": "제50조_간접시계장치", "note": "개발시점 면제", "inDate": "2026-08-20", "inTeam": "제원", "outDate": "2026-08-20", "outTeam": "제원", "doneDate": "2026-08-20", "status": "완료"}, {"year": "2024", "maker": "한차", "model": "GREENWAY 720", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2024", "maker": "피라인", "model": "HYPERS1609P", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "현대", "model": "카운티일렉트릭", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-08-20", "inTeam": "제원", "outDate": "2026-08-20", "outTeam": "제원", "doneDate": "2026-08-20", "status": "완료"}, {"year": "2026", "maker": "르노", "model": "콜레오스", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-08-13", "inTeam": "소음", "outDate": "2026-08-13", "outTeam": "소음", "doneDate": "2026-08-13", "status": "완료"}, {"year": "2026", "maker": "폭스바겐", "model": "ID.4", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2024", "maker": "에스에이피", "model": "LIONNE", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "에스에이피", "model": "NEOFORCE", "item": "제50조_간접시계장치", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "에스에이피", "model": "NEOFORCE", "item": "제94조_운전자의시계범위", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "에스에이피", "model": "NEOFORCE", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "폭스바겐", "model": "Q4", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "현대", "model": "팰리세이드", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-08-13", "inTeam": "소음", "outDate": "2026-08-13", "outTeam": "소음", "doneDate": "2026-08-13", "status": "완료"}, {"year": "2026", "maker": "볼보", "model": "S90", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "GS글로벌", "model": "T4K", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "현대", "model": "뉴카운티", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "킹롱이브이", "model": "마젤란9", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "현대", "model": "포터2", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-08-13", "inTeam": "소음", "outDate": "2026-08-13", "outTeam": "소음", "doneDate": "2026-08-13", "status": "완료"}, {"year": "2026", "maker": "볼보", "model": "S90", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-05-21", "inTeam": "환경", "outDate": "2026-08-05", "outTeam": "소음", "doneDate": "2026-08-05", "status": "완료"}, {"year": "2026", "maker": "KG모빌리티", "model": "무쏘EV", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "BMW", "model": "520i", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-05-21", "inTeam": "환경", "outDate": "2026-07-29", "outTeam": "환경", "doneDate": "2026-07-29", "status": "완료"}, {"year": "2026", "maker": "BMW", "model": "520i", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-05-21", "inTeam": "환경", "outDate": "2026-07-29", "outTeam": "환경", "doneDate": "2026-07-29", "status": "완료"}, {"year": "2026", "maker": "기아", "model": "스포티지", "item": "제95조_차실내장재연소성", "note": "", "inDate": "2026-11-16", "inTeam": "등화", "outDate": "", "outTeam": "", "doneDate": "", "status": "진행중"}, {"year": "2024", "maker": "이엠코리아", "model": "에픽시티", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "이엠코리아", "model": "에픽타운EV", "item": "제50조_간접시계장치", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "이엠코리아", "model": "에픽타운EV", "item": "제94조_운전자의시계범위", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "이엠코리아", "model": "에픽타운EV", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "티에스모터스", "model": "일레누스", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2025", "maker": "현대", "model": "일렉시티FCEV", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "KG모빌리티", "model": "무쏘EV", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-07-27", "inTeam": "소음", "outDate": "2026-07-28", "outTeam": "소음", "doneDate": "2026-07-28", "status": "완료"}, {"year": "2026", "maker": "KG모빌리티", "model": "무쏘EV", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-07-27", "inTeam": "소음", "outDate": "2026-07-28", "outTeam": "소음", "doneDate": "2026-07-28", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "카운티일렉트릭", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "현대", "model": "G80", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-06-16", "inTeam": "환경", "outDate": "2026-07-21", "outTeam": "소음", "doneDate": "2026-07-21", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "G80", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-06-16", "inTeam": "환경", "outDate": "2026-07-21", "outTeam": "소음", "doneDate": "2026-07-21", "status": "완료"}, {"year": "2026", "maker": "르노", "model": "콜레오스", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2024", "maker": "테라팩토리", "model": "테라밴", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "벤츠", "model": "GLE450", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-04-21", "inTeam": "환경", "outDate": "2026-07-20", "outTeam": "환경", "doneDate": "2026-07-20", "status": "완료"}, {"year": "2026", "maker": "벤츠", "model": "GLE450", "item": "제94조_운전자의시계범위", "note": "", "inDate": "2026-04-21", "inTeam": "환경", "outDate": "2026-07-20", "outTeam": "환경", "doneDate": "2026-07-20", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "팰리세이드", "item": "제95조_차실내장재연소성", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}, {"year": "2026", "maker": "폭스바겐", "model": "ID.4", "item": "제50조_간접시계장치", "note": "", "inDate": "2026-07-03", "inTeam": "환경", "outDate": "2026-07-14", "outTeam": "소음", "doneDate": "2026-07-14", "status": "완료"}, {"year": "2026", "maker": "기아", "model": "스포티지", "item": "제50조_간접시계장치", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "2026-05-15", "status": "완료"}, {"year": "2026", "maker": "현대", "model": "카운티일렉트릭", "item": "제53조의2_후방보행자안전장치", "note": "", "inDate": "", "inTeam": "", "outDate": "", "outTeam": "", "doneDate": "", "status": "대기중"}], "glass": [{"year": "2026", "maker": "KG모빌리티", "model": "토레스", "item": "제112조7_창유리", "note": "무쏘와 앞유리 동일", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-11-10"}, {"year": "2026", "maker": "KG모빌리티", "model": "무쏘EV", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-11-10"}, {"year": "2026", "maker": "현대", "model": "포터2", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-11-10"}, {"year": "2026", "maker": "현대", "model": "G80", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-10-28"}, {"year": "2026", "maker": "현대", "model": "팰리세이드", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-10-27"}, {"year": "2025", "maker": "벤츠", "model": "EQE350+", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "●", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-10-13"}, {"year": "2026", "maker": "벤츠", "model": "GLE450", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-10-13"}, {"year": "2026", "maker": "볼보", "model": "S90", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-09-21"}, {"year": "2026", "maker": "폭스바겐", "model": "ID.4", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-09-17"}, {"year": "2026", "maker": "르노", "model": "Koleos", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-09-08"}, {"year": "2026", "maker": "BMW", "model": "520i", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "●", "○"], "doneDate": "2026-09-03"}, {"year": "2025", "maker": "킹롱이브이", "model": "마젤란9", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "●", "●", "●", "●", "●", "부적합", "●", "○"], "doneDate": "2026-05-18"}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus11", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "●", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus12", "item": "제112조7_창유리", "note": "승차문 파쇄만 완료, 옆면유리 불량 재배송중", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "이엠코리아", "model": "에픽타운EV", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "●", "●", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "기아", "model": "스포티지", "item": "제105조_창유리", "note": "지그제작중", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "○", "○", "●", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "기아", "model": "EV3", "item": "제105조_창유리", "note": "지그제작중", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "●", "○", "○", "●", "○", "○"], "doneDate": ""}, {"year": "2025", "maker": "티에스모터스", "model": "일레누스", "item": "제105조_창유리", "note": "내년구매", "steps": ["●", "●", "○", "○", "○", "○", "●", "●", "●", "○", "●", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "현대", "model": "카운티일렉트릭", "item": "제105조_창유리", "note": "", "steps": ["●", "●", "●", "●", "●", "○", "●", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "범한자동차", "model": "E-SKY11", "item": "제112조7_창유리", "note": "지그제작중", "steps": ["●", "●", "●", "●", "●", "○", "○", "○", "●", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "에스에이피", "model": "NEOFORCE", "item": "제105조_창유리", "note": "내년구매", "steps": ["●", "●", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2024", "maker": "한차", "model": "GREENWAY720", "item": "제105조_창유리", "note": "구매계약협의중", "steps": ["●", "●", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "볼보트럭", "model": "FH", "item": "제105조_창유리", "note": "내년구매", "steps": ["○", "○", "○", "○", "○", "○", "●", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "GM", "model": "GMC Sierra", "item": "제105조_창유리", "note": "내년구매", "steps": ["○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}, {"year": "2026", "maker": "이비온", "model": "E6", "item": "제112조7_창유리", "note": "내년구매", "steps": ["○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○", "○"], "doneDate": ""}], "belt": [{"year": "2026", "maker": "현대모비스", "model": "쏘렌토", "item": "제112조3_좌석안전띠", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "○", "○", "○", "○"], "dynamicDate": ""}, {"year": "2026", "maker": "벤츠", "model": "E300e", "item": "제112조3_좌석안전띠", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "○", "○", "○", "○"], "dynamicDate": ""}, {"year": "2026", "maker": "GS글로벌", "model": "BYD eBus12", "item": "제112조3_좌석안전띠", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "○", "○", "○", "○"], "dynamicDate": ""}, {"year": "2026", "maker": "범한자동차", "model": "E-SKY11", "item": "제112조3_좌석안전띠", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "○", "○", "○", "○"], "dynamicDate": ""}, {"year": "2025", "maker": "현대모비스", "model": "뉴그랜버드", "item": "제112조3_좌석안전띠", "note": "", "steps": ["●", "●", "●", "●", "●", "●", "●", "●", "●", "●"], "dynamicDate": ""}]};
@@ -666,37 +860,432 @@
     renderTable();
   };
 
+  // 시험일정표 DB 초기화 보장 헬퍼 (DB에 아직 schedule 컬렉션이 없으면 시드 데이터를 DB에 먼저 저장)
+  async function ensureScheduleInDb() {
+    if (store.schedule && store.schedule.length > 0) return true;
+    const batch = writeBatch(db);
+    const clonedList = JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA));
+    clonedList.forEach((v, idx) => {
+      const { id, ...rest } = v;
+      const ref = doc(db, 'records_schedule', v.sheetName);
+      batch.set(ref, { ...rest, order: idx + 1, updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+    // 실시간 스냅샷이 도착하기 전 즉시 조작 가능하도록 store.schedule 임시 반영
+    store.schedule = clonedList.map((v, idx) => ({ ...v, id: v.sheetName, order: idx + 1 }));
+    return true;
+  }
+
+  // 현재 선택된 시험일정표 차량 객체 가져오기
+  function getCurrentScheduleVehicle() {
+    const list = getScheduleList();
+    return list.find(v => v.sheetName === selectedSchedVehicle || v.id === selectedSchedVehicle) || list[0] || null;
+  }
+
+  // 메인 '+ 신규 등록' / '+ 신규 차량 추가' 버튼 핸들러
+  window.handleMainAddClick = function() {
+    if (currentTab === 'schedule') {
+      openSchedVehicleModal();
+    } else {
+      openModal();
+    }
+  };
+
+  // [시험일정표] 신규 차량 모달 열기/닫기/저장/삭제
+  window.openSchedVehicleModal = function() {
+    document.getElementById('sv_year').value = document.getElementById('yearFilter').value || '2026';
+    document.getElementById('sv_carName').value = '';
+    document.getElementById('sv_title').value = '';
+    document.getElementById('sv_template').value = 'standard';
+    document.getElementById('sv_days').value = '14';
+    document.getElementById('schedVehicleModal').classList.add('open');
+    setTimeout(() => document.getElementById('sv_carName').focus(), 50);
+  };
+  window.closeSchedVehicleModal = function() {
+    document.getElementById('schedVehicleModal').classList.remove('open');
+  };
+
+  window.saveScheduleVehicle = async function(e) {
+    e.preventDefault();
+    const year = document.getElementById('sv_year').value.trim();
+    const carName = document.getElementById('sv_carName').value.trim();
+    if (!year || !carName) return;
+
+    const shortYear = year.length === 4 ? year.slice(2) : year;
+    const customTitle = document.getElementById('sv_title').value.trim();
+    const title = customTitle || `${shortYear} ${carName}`;
+    const tpl = document.getElementById('sv_template').value;
+    const numDays = Math.max(1, Math.min(30, parseInt(document.getElementById('sv_days').value, 10) || 14));
+
+    const headers = Array.from({ length: numDays }, (_, i) => `시험일${i + 1}`);
+    let rows = [];
+
+    if (tpl === 'standard' && SCHEDULE_SEED_DATA.length > 0) {
+      // 첫 번째 표준 차량 템플릿 구조를 복사하되 모든 시험항목 상태를 '○'(미완료)로 초기화
+      const baseRows = JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA[0].rows));
+      rows = baseRows.map(r => {
+        const newCells = [];
+        let cursor = 0;
+        for (const c of r.cells) {
+          if (cursor >= numDays) break;
+          const span = Math.min(c.colspan || 1, numDays - cursor);
+          newCells.push({
+            colIdx: cursor,
+            colspan: span,
+            text: c.text || '',
+            status: c.status !== null ? '○' : null
+          });
+          cursor += span;
+        }
+        while (cursor < numDays) {
+          newCells.push({ colIdx: cursor, colspan: 1, text: '', status: null });
+          cursor++;
+        }
+        return { pos: r.pos, part: r.part, partNo: r.partNo, cells: newCells };
+      });
+    } else {
+      // 빈 일정표 시작 시 기본 1행 제공
+      rows = [{
+        pos: '1열LH',
+        part: '리트랙터(3점식)',
+        partNo: '1',
+        cells: Array.from({ length: numDays }, (_, i) => ({ colIdx: i, colspan: 1, text: '', status: null }))
+      }];
+    }
+
+    const cleanCar = carName.replace(/[\/\s]+/g, '_');
+    const sheetName = `${shortYear}_좌석_${cleanCar}_${Date.now().toString().slice(-4)}`;
+
+    try {
+      await ensureScheduleInDb();
+      const minOrder = store.schedule.reduce((min, x) => Math.min(min, x.order ?? 0), 0);
+      const newDocData = {
+        order: minOrder - 1,
+        sheetName,
+        title,
+        year,
+        carName,
+        isDoneSheet: false,
+        headers,
+        rows,
+        updatedAt: serverTimestamp()
+      };
+      await addDoc(collection(db, 'records_schedule'), newDocData);
+      selectedSchedVehicle = sheetName;
+      // 연도 필터가 다른 연도로 잡혀있으면 해제하여 새로 추가한 차량이 바로 보이게 함
+      const yrFilter = document.getElementById('yearFilter').value;
+      if (yrFilter && yrFilter !== year) {
+        document.getElementById('yearFilter').value = '';
+      }
+      closeSchedVehicleModal();
+      showToast(`'${title}' 차량 시험일정표가 추가되었습니다`);
+    } catch (err) {
+      alert('차량 추가 중 오류가 발생했습니다: ' + err.message);
+    }
+  };
+
+  window.deleteCurrentScheduleVehicle = async function() {
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle) return;
+    if (!confirm(`'${vehicle.title}' 차량의 시험일정표 전체를 삭제하시겠습니까?`)) return;
+    try {
+      await ensureScheduleInDb();
+      const target = store.schedule.find(v => v.sheetName === vehicle.sheetName || v.id === vehicle.id);
+      if (target) {
+        await deleteDoc(doc(db, 'records_schedule', target.id));
+      }
+      selectedSchedVehicle = '';
+      showToast(`'${vehicle.title}' 차량이 삭제되었습니다`);
+    } catch (err) {
+      alert('차량 삭제 실패: ' + err.message);
+    }
+  };
+
+  // [시험일정표] 행(좌석위치/부품/부품번호) 추가·수정 모달
+  window.openSchedRowModal = function(rowIdx = -1) {
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle) return;
+    const isEdit = rowIdx >= 0 && vehicle.rows[rowIdx];
+    const row = isEdit ? vehicle.rows[rowIdx] : null;
+
+    document.getElementById('sr_rowIdx').value = isEdit ? rowIdx : -1;
+    document.getElementById('schedRowModalTitle').textContent = isEdit ? '좌석위치 / 부품 / 부품번호 수정' : '+ 시험일정 행 추가';
+    document.getElementById('sr_pos').value = row ? row.pos : '';
+    document.getElementById('sr_part').value = row ? row.part : '';
+    document.getElementById('sr_partNo').value = row ? row.partNo : '1';
+    document.getElementById('sr_deleteBtn').style.display = isEdit ? 'inline-block' : 'none';
+
+    const insertGroup = document.getElementById('sr_insertPosGroup');
+    const insertSelect = document.getElementById('sr_insertAfter');
+    if (isEdit) {
+      insertGroup.style.display = 'none';
+    } else {
+      insertGroup.style.display = 'flex';
+      insertSelect.innerHTML = `<option value="end">테이블 맨 아래에 추가</option>` +
+        vehicle.rows.map((r, idx) => `<option value="${idx}">${idx + 1}행 [${esc(r.pos)} - ${esc(r.part)} #${esc(r.partNo)}] 바로 아래</option>`).join('');
+      insertSelect.value = 'end';
+    }
+
+    document.getElementById('schedRowModal').classList.add('open');
+    setTimeout(() => document.getElementById('sr_pos').focus(), 50);
+  };
+  window.closeSchedRowModal = function() {
+    document.getElementById('schedRowModal').classList.remove('open');
+  };
+
+  window.saveScheduleRow = async function(e) {
+    e.preventDefault();
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle) return;
+
+    const rowIdx = parseInt(document.getElementById('sr_rowIdx').value, 10);
+    const pos = document.getElementById('sr_pos').value.trim();
+    const part = document.getElementById('sr_part').value.trim();
+    const partNo = document.getElementById('sr_partNo').value.trim();
+    if (!pos || !part || !partNo) return;
+
+    try {
+      await ensureScheduleInDb();
+      const target = store.schedule.find(v => v.sheetName === vehicle.sheetName || v.id === vehicle.id);
+      if (!target) return;
+      const newRows = JSON.parse(JSON.stringify(target.rows));
+
+      if (rowIdx >= 0 && newRows[rowIdx]) {
+        newRows[rowIdx].pos = pos;
+        newRows[rowIdx].part = part;
+        newRows[rowIdx].partNo = partNo;
+      } else {
+        const numDays = target.headers.length || 14;
+        const newRow = {
+          pos,
+          part,
+          partNo,
+          cells: Array.from({ length: numDays }, (_, i) => ({ colIdx: i, colspan: 1, text: '', status: null }))
+        };
+        const insertVal = document.getElementById('sr_insertAfter').value;
+        if (insertVal === 'end') {
+          newRows.push(newRow);
+        } else {
+          const afterIdx = parseInt(insertVal, 10);
+          newRows.splice(afterIdx + 1, 0, newRow);
+        }
+      }
+
+      await updateDoc(doc(db, 'records_schedule', target.id), {
+        rows: newRows,
+        updatedAt: serverTimestamp()
+      });
+      closeSchedRowModal();
+      showToast(rowIdx >= 0 ? '행 정보가 수정되었습니다' : '새 행이 추가되었습니다');
+    } catch (err) {
+      alert('저장 실패: ' + err.message);
+    }
+  };
+
+  window.deleteScheduleRow = async function() {
+    const vehicle = getCurrentScheduleVehicle();
+    const rowIdx = parseInt(document.getElementById('sr_rowIdx').value, 10);
+    if (!vehicle || rowIdx < 0) return;
+    if (!confirm('이 행(좌석위치/부품/시험항목)을 삭제하시겠습니까?')) return;
+
+    try {
+      await ensureScheduleInDb();
+      const target = store.schedule.find(v => v.sheetName === vehicle.sheetName || v.id === vehicle.id);
+      if (!target) return;
+      const newRows = JSON.parse(JSON.stringify(target.rows));
+      newRows.splice(rowIdx, 1);
+      await updateDoc(doc(db, 'records_schedule', target.id), {
+        rows: newRows,
+        updatedAt: serverTimestamp()
+      });
+      closeSchedRowModal();
+      showToast('행이 삭제되었습니다');
+    } catch (err) {
+      alert('삭제 실패: ' + err.message);
+    }
+  };
+
+  // [시험일정표] 셀(시험항목) 추가·수정 모달
+  window.openSchedCellModal = function(rowIdx, cellIdx) {
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle || !vehicle.rows[rowIdx] || !vehicle.rows[rowIdx].cells[cellIdx]) return;
+    const row = vehicle.rows[rowIdx];
+    const cell = row.cells[cellIdx];
+    const numCols = vehicle.headers.length;
+
+    document.getElementById('sc_rowIdx').value = rowIdx;
+    document.getElementById('sc_cellIdx').value = cellIdx;
+    document.getElementById('sc_rowInfo').value = `${row.pos} | ${row.part} (부품번호: ${row.partNo})`;
+    document.getElementById('sc_text').value = cell.text || '';
+    document.getElementById('sc_status').value = cell.status === '●' ? '●' : '○';
+
+    const startSelect = document.getElementById('sc_startCol');
+    startSelect.innerHTML = vehicle.headers.map((h, i) => `<option value="${i}" ${i === cell.colIdx ? 'selected' : ''}>${esc(h)}</option>`).join('');
+
+    const maxSpan = Math.max(1, numCols - cell.colIdx);
+    const spanInput = document.getElementById('sc_colspan');
+    spanInput.max = maxSpan;
+    spanInput.value = Math.min(cell.colspan || 1, maxSpan);
+
+    startSelect.onchange = function() {
+      const sCol = parseInt(this.value, 10);
+      const mSpan = Math.max(1, numCols - sCol);
+      spanInput.max = mSpan;
+      if (parseInt(spanInput.value, 10) > mSpan) spanInput.value = mSpan;
+    };
+
+    const isExisting = cell.status !== null && (cell.text || '').trim() !== '';
+    document.getElementById('schedCellModalTitle').textContent = isExisting ? '시험항목 수정' : '+ 시험항목 추가';
+    document.getElementById('sc_clearBtn').style.display = isExisting ? 'inline-block' : 'none';
+
+    document.getElementById('schedCellModal').classList.add('open');
+    setTimeout(() => document.getElementById('sc_text').focus(), 50);
+  };
+  window.closeSchedCellModal = function() {
+    document.getElementById('schedCellModal').classList.remove('open');
+  };
+
+  // 행의 셀 배열을 안전하게 재구성 (colIdx 및 colspan 정합성 유지)
+  function rebuildRowCellsWithUpdate(row, numCols, targetCellIdx, newStartCol, newColspan, newText, newStatus) {
+    // 1. 기존 셀들을 1칸 단위 슬롯으로 펼침 (targetCellIdx 제외)
+    const slots = Array.from({ length: numCols }, (_, i) => ({
+      colIdx: i,
+      colspan: 1,
+      text: '',
+      status: null,
+      groupId: null
+    }));
+
+    row.cells.forEach((c, idx) => {
+      if (idx === targetCellIdx) return;
+      const start = c.colIdx;
+      const span = c.colspan || 1;
+      for (let k = 0; k < span && (start + k) < numCols; k++) {
+        slots[start + k] = {
+          colIdx: start + k,
+          colspan: 1,
+          text: c.text || '',
+          status: c.status,
+          groupId: `orig_${idx}`
+        };
+      }
+    });
+
+    // 2. 새 항목이 있으면 지정된 구간에 배치
+    const trimmedText = (newText || '').trim();
+    if (trimmedText !== '') {
+      const endCol = Math.min(numCols, newStartCol + Math.max(1, newColspan));
+      for (let c = newStartCol; c < endCol; c++) {
+        slots[c] = {
+          colIdx: c,
+          colspan: 1,
+          text: trimmedText,
+          status: newStatus || '○',
+          groupId: 'new_item'
+        };
+      }
+    }
+
+    // 3. 연속된 동일 groupId 슬롯들을 다시 병합된 cells 배열로 압축
+    const rebuilt = [];
+    let i = 0;
+    while (i < numCols) {
+      const cur = slots[i];
+      if (!cur.groupId) {
+        rebuilt.push({ colIdx: i, colspan: 1, text: '', status: null });
+        i++;
+      } else {
+        let span = 1;
+        while ((i + span) < numCols && slots[i + span].groupId === cur.groupId) {
+          span++;
+        }
+        rebuilt.push({
+          colIdx: i,
+          colspan: span,
+          text: cur.text,
+          status: cur.status
+        });
+        i += span;
+      }
+    }
+    return rebuilt;
+  }
+
+  window.saveScheduleCell = async function(e) {
+    e.preventDefault();
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle) return;
+
+    const rowIdx = parseInt(document.getElementById('sc_rowIdx').value, 10);
+    const cellIdx = parseInt(document.getElementById('sc_cellIdx').value, 10);
+    const text = document.getElementById('sc_text').value.trim();
+    const startCol = parseInt(document.getElementById('sc_startCol').value, 10);
+    const colspan = Math.max(1, parseInt(document.getElementById('sc_colspan').value, 10) || 1);
+    const status = document.getElementById('sc_status').value;
+
+    try {
+      await ensureScheduleInDb();
+      const target = store.schedule.find(v => v.sheetName === vehicle.sheetName || v.id === vehicle.id);
+      if (!target || !target.rows[rowIdx]) return;
+
+      const newRows = JSON.parse(JSON.stringify(target.rows));
+      const numCols = target.headers.length || 14;
+      newRows[rowIdx].cells = rebuildRowCellsWithUpdate(
+        newRows[rowIdx], numCols, cellIdx, startCol, colspan, text, text ? status : null
+      );
+
+      await updateDoc(doc(db, 'records_schedule', target.id), {
+        rows: newRows,
+        updatedAt: serverTimestamp()
+      });
+      closeSchedCellModal();
+      showToast(text ? '시험항목이 저장되었습니다' : '시험항목이 비워졌습니다');
+    } catch (err) {
+      alert('저장 실패: ' + err.message);
+    }
+  };
+
+  window.clearScheduleCell = async function() {
+    const vehicle = getCurrentScheduleVehicle();
+    if (!vehicle) return;
+    const rowIdx = parseInt(document.getElementById('sc_rowIdx').value, 10);
+    const cellIdx = parseInt(document.getElementById('sc_cellIdx').value, 10);
+
+    try {
+      await ensureScheduleInDb();
+      const target = store.schedule.find(v => v.sheetName === vehicle.sheetName || v.id === vehicle.id);
+      if (!target || !target.rows[rowIdx]) return;
+
+      const newRows = JSON.parse(JSON.stringify(target.rows));
+      const numCols = target.headers.length || 14;
+      newRows[rowIdx].cells = rebuildRowCellsWithUpdate(
+        newRows[rowIdx], numCols, cellIdx, 0, 1, '', null
+      );
+
+      await updateDoc(doc(db, 'records_schedule', target.id), {
+        rows: newRows,
+        updatedAt: serverTimestamp()
+      });
+      closeSchedCellModal();
+      showToast('시험항목이 삭제(비움)되었습니다');
+    } catch (err) {
+      alert('삭제 실패: ' + err.message);
+    }
+  };
+
   // 시험일정표 셀 완료/미완료 토글 (● 완료 <-> ○ 미완료)
   window.toggleScheduleCell = async function(sheetName, rowIdx, cellIdx) {
-    // 1. 만약 DB에 아직 schedule 데이터가 업로드되지 않았다면 초기 데이터를 DB에 동기화 후 업데이트
-    if (!store.schedule || store.schedule.length === 0) {
-      try {
-        const batch = writeBatch(db);
-        const clonedList = JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA));
-        const target = clonedList.find(v => v.sheetName === sheetName);
-        if (target && target.rows[rowIdx] && target.rows[rowIdx].cells[cellIdx]) {
-          const cur = target.rows[rowIdx].cells[cellIdx].status;
-          target.rows[rowIdx].cells[cellIdx].status = (cur === '●') ? '○' : '●';
-        }
-        clonedList.forEach((v, idx) => {
-          const { id, ...rest } = v;
-          const ref = doc(db, 'records_schedule', v.sheetName);
-          batch.set(ref, { ...rest, order: idx + 1, updatedAt: serverTimestamp() });
-        });
-        await batch.commit();
-        showToast('시험일정표가 클라우드 DB에 연동 및 반영되었습니다');
-        return;
-      } catch (e) {
-        // 오프라인/권한 이슈 시 로컬 메모리에서라도 즉시 반영
-        const localV = SCHEDULE_SEED_DATA.find(v => v.sheetName === sheetName);
-        if (localV) {
-          const cur = localV.rows[rowIdx].cells[cellIdx].status;
-          localV.rows[rowIdx].cells[cellIdx].status = (cur === '●') ? '○' : '●';
-          renderTable();
-        }
-        showToast('로컬 반영됨 (DB 저장 오류: ' + e.message + ')');
-        return;
+    try {
+      await ensureScheduleInDb();
+    } catch (e) {
+      const localV = SCHEDULE_SEED_DATA.find(v => v.sheetName === sheetName);
+      if (localV && localV.rows[rowIdx]?.cells?.[cellIdx]) {
+        const cur = localV.rows[rowIdx].cells[cellIdx].status;
+        localV.rows[rowIdx].cells[cellIdx].status = (cur === '●') ? '○' : '●';
+        renderTable();
       }
+      showToast('로컬 반영됨 (DB 저장 오류: ' + e.message + ')');
+      return;
     }
 
     const item = store.schedule.find(v => v.sheetName === sheetName || v.id === sheetName);
@@ -732,8 +1321,11 @@
     document.getElementById('schedStatusFilter').style.display = (tab === 'schedule') ? 'inline-block' : 'none';
     document.getElementById('schedVehicleBar').style.display = (tab === 'schedule') ? 'flex' : 'none';
 
-    const addBtn = document.querySelector('.toolbar .btn-primary');
-    if (addBtn) addBtn.style.display = (tab === 'schedule') ? 'none' : 'inline-block';
+    const addBtn = document.getElementById('mainAddBtn');
+    if (addBtn) {
+      addBtn.style.display = 'inline-block';
+      addBtn.textContent = (tab === 'schedule') ? '+ 신규 차량 추가' : '+ 신규 등록';
+    }
 
     renderTable();
   };
@@ -806,10 +1398,13 @@
 
     if (yearVehicles.length === 0) {
       selEl.innerHTML = '<option value="">해당 연도 차량 없음</option>';
-      barEl.innerHTML = '<span style="color:#64748b; font-size:13px;">선택한 연도에 해당하는 차량 시험일정표가 없습니다.</span>';
+      barEl.innerHTML = `
+        <span style="color:#64748b; font-size:13px;">선택한 연도에 해당하는 차량 시험일정표가 없습니다.</span>
+        <button type="button" class="btn-sched-sub" style="margin-left:auto;" onclick="openSchedVehicleModal()">+ 신규 차량 추가</button>
+      `;
       summaryEl.className = 'summary-bar';
       summaryEl.innerHTML = '';
-      table.innerHTML = '<tbody><tr><td style="padding:30px; color:#64748b;">표시할 데이터가 없습니다.</td></tr></tbody>';
+      table.innerHTML = '<tbody><tr><td style="padding:30px; color:#64748b;">표시할 데이터가 없습니다. 상단 [+ 신규 차량 추가] 버튼으로 차량을 등록해보세요.</td></tr></tbody>';
       return;
     }
 
@@ -829,7 +1424,7 @@
       return `<option value="${esc(v.sheetName)}" ${selected}>🚗 ${esc(v.title)} (${dn}/${tot}, ${pct}%)</option>`;
     }).join('');
 
-    // 빠른 선택 차량 버튼(Pill) 바 업데이트
+    // 빠른 선택 차량 버튼(Pill) 바 + 행/차량 관리 버튼 업데이트
     barEl.innerHTML = `<span class="sched-vehicle-bar-label">차량 선택:</span>` +
       yearVehicles.map(v => {
         let tot = 0, dn = 0;
@@ -843,9 +1438,13 @@
           <span class="pill-badge">${dn}/${tot}</span>
         </button>`;
       }).join('') +
-      `<div class="sched-legend">
-        <span class="legend-chip" style="color:#166534;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span> ● 완료(초록)</span>
-        <span class="legend-chip" style="color:#9a3412;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid #ea580c;background:#fff;"></span> ○ 미완료(주황)</span>
+      `<div class="sched-action-group" style="margin-left:auto;">
+        <button type="button" class="btn-sched-sub" onclick="openSchedRowModal(-1)">+ 행(좌석/부품) 추가</button>
+        <button type="button" class="btn-sched-del" onclick="deleteCurrentScheduleVehicle()">🗑️ 선택 차량 삭제</button>
+        <div class="sched-legend">
+          <span class="legend-chip" style="color:#166534;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span> ● 완료</span>
+          <span class="legend-chip" style="color:#9a3412;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid #ea580c;background:#fff;"></span> ○ 미완료</span>
+        </div>
       </div>`;
 
     const vehicle = yearVehicles.find(v => v.sheetName === selectedSchedVehicle) || yearVehicles[0];
@@ -905,11 +1504,12 @@
       <th class="sticky-col" style="min-width:74px; text-align:center;">좌석위치</th>
       <th style="min-width:125px;">부품</th>
       <th style="min-width:56px;">부품번호</th>
-      ${vehicle.headers.map(h => `<th style="min-width:105px;">${esc(h)}</th>`).join('')}
+      ${vehicle.headers.map(h => `<th style="min-width:115px;">${esc(h)}</th>`).join('')}
+      <th style="min-width:64px;">행 관리</th>
     </tr></thead><tbody>`;
 
     if (visibleRowIndices.length === 0) {
-      html += `<tr><td colspan="${3 + vehicle.headers.length}" style="padding:28px; color:#64748b;">조건에 일치하는 시험일정 항목이 없습니다.</td></tr>`;
+      html += `<tr><td colspan="${4 + vehicle.headers.length}" style="padding:28px; color:#64748b;">조건에 일치하는 시험일정 항목이 없습니다.</td></tr>`;
     } else {
       visibleRowIndices.forEach((rIdx, visIdx) => {
         const r = vehicle.rows[rIdx];
@@ -920,25 +1520,35 @@
         if (partSpans[visIdx] > 0) {
           html += `<td class="part-col" rowspan="${partSpans[visIdx]}">${esc(r.part)}</td>`;
         }
-        html += `<td style="font-weight:700; color:#475569;">${esc(r.partNo)}</td>`;
+        html += `<td style="font-weight:700; color:#475569; cursor:pointer;" title="클릭하여 좌석위치/부품/부품번호 수정" onclick="openSchedRowModal(${rIdx})">${esc(r.partNo)}</td>`;
 
         r.cells.forEach((cell, cIdx) => {
           const spanAttr = cell.colspan > 1 ? ` colspan="${cell.colspan}"` : '';
           if (cell.status === null) {
-            html += `<td${spanAttr} style="background:#fafafa;"></td>`;
+            html += `<td${spanAttr} style="background:#fafafa;">
+              <button type="button" class="sched-empty-cell" title="클릭하여 시험항목 추가" onclick="openSchedCellModal(${rIdx}, ${cIdx})">+ 추가</button>
+            </td>`;
           } else {
             const isDone = cell.status === '●';
             const cls = isDone ? 'done' : 'undone';
             const dotChar = isDone ? '●' : '○';
             const titleTip = isDone ? '완료 (초록) — 클릭 시 미완료(주황)로 변경' : '미완료 (주황) — 클릭 시 완료(초록)로 변경';
             html += `<td${spanAttr}>
-              <button type="button" class="sched-cell-test ${cls}" title="${titleTip}" onclick="toggleScheduleCell('${esc(vehicle.sheetName)}', ${rIdx}, ${cIdx})">
-                <span class="sched-dot">${dotChar}</span>
-                <span>${esc(cell.text)}</span>
-              </button>
+              <div class="sched-cell-wrap">
+                <button type="button" class="sched-cell-test ${cls}" title="${titleTip}" onclick="toggleScheduleCell('${esc(vehicle.sheetName)}', ${rIdx}, ${cIdx})">
+                  <span class="sched-dot">${dotChar}</span>
+                  <span>${esc(cell.text)}</span>
+                </button>
+                <button type="button" class="sched-cell-edit-btn" title="시험항목 내용/일수 수정 및 삭제" onclick="openSchedCellModal(${rIdx}, ${cIdx})">✏️</button>
+              </div>
             </td>`;
           }
         });
+        html += `<td>
+          <div class="sched-row-actions">
+            <button type="button" class="sched-row-btn" title="좌석위치/부품/부품번호 수정 및 행 삭제" onclick="openSchedRowModal(${rIdx})">✏️</button>
+          </div>
+        </td>`;
         html += `</tr>`;
       });
     }
