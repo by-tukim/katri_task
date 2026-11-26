@@ -101,6 +101,9 @@
     .summary-bar {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;
     }
+    .summary-bar.cols-5 {
+      grid-template-columns: repeat(5, 1fr);
+    }
     .stat-card {
       background: var(--card); border-radius: 10px; padding: 10px 12px;
       border: 1px solid #e2e8f0; text-align: center;
@@ -158,13 +161,13 @@
     tr:hover td { background: #f8fafc; }
     tr:hover td.sticky-col { background: #f1f5f9; }
 
-    /* 동그라미 토글 버튼 */
+    /* 동그라미 토글 버튼 (하얀원 -> 파란색원 -> 빨간색원 순환) */
     .circle-btn {
       width: 30px; height: 30px; border-radius: 50%;
       border: 2px solid #94a3b8; background: #fff; color: #64748b;
       font-size: 15px; font-weight: 700; cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center;
-      transition: transform 0.1s, background 0.15s;
+      transition: transform 0.1s, background 0.15s, border-color 0.15s;
       user-select: none;
     }
     .circle-btn:active { transform: scale(0.88); }
@@ -173,7 +176,6 @@
     }
     .circle-btn.fail {
       background: var(--fail); border-color: var(--fail); color: #fff;
-      font-size: 10px; width: auto; padding: 0 7px; border-radius: 12px;
     }
 
     /* 진행률 바 */
@@ -241,7 +243,7 @@
     #toast.show { opacity: 1; bottom: 28px; }
 
     @media (max-width: 640px) {
-      .summary-bar { grid-template-columns: repeat(2, 1fr); }
+      .summary-bar, .summary-bar.cols-5 { grid-template-columns: repeat(2, 1fr); }
       .header-title { font-size: 15px; }
     }
   </style>
@@ -343,9 +345,6 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import {
-    getAuth, signInAnonymously, signOut
-  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import {
     getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, writeBatch, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -361,7 +360,6 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
   const db = getFirestore(app);
 
   // 2. 초기 엑셀 데이터 (94건)
@@ -376,96 +374,30 @@
   let store = { sigye: [], glass: [], belt: [] };
   let isSeededCheckDone = { sigye: false, glass: false, belt: false };
 
-  let listenersStarted = false;
-  let unsubscribers = [];
-
-  function startRealtimeListeners() {
-    if (listenersStarted) return;
-    listenersStarted = true;
-    ['sigye', 'glass', 'belt'].forEach(colName => {
-      const unsub = onSnapshot(collection(db, `records_${colName}`), (snap) => {
-        document.getElementById('syncDot').classList.remove('offline');
-        document.getElementById('syncText').textContent = '실시간 동기화됨';
-
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => (a.order ?? -1) - (b.order ?? -1));
-        store[colName] = list;
-        isSeededCheckDone[colName] = true;
-
-        document.getElementById(`cnt-${colName}`).textContent = list.length;
-
-        const allChecked = isSeededCheckDone.sigye && isSeededCheckDone.glass && isSeededCheckDone.belt;
-        const totalCount = store.sigye.length + store.glass.length + store.belt.length;
-        document.getElementById('seedBtn').style.display = (allChecked && totalCount === 0) ? 'inline-block' : 'none';
-
-        if (currentTab === colName) {
-          renderTable();
-        }
-      }, (err) => {
-        console.error(err);
-        document.getElementById('syncDot').classList.add('offline');
-        document.getElementById('syncText').textContent = '권한/연결 오류';
-      });
-      unsubscribers.push(unsub);
-    });
-  }
-
-  function stopRealtimeListeners() {
-    unsubscribers.forEach(u => u());
-    unsubscribers = [];
-    listenersStarted = false;
-    store = { sigye: [], glass: [], belt: [] };
-    isSeededCheckDone = { sigye: false, glass: false, belt: false };
-    document.getElementById('dataTable').innerHTML = '';
-    document.getElementById('summaryBar').innerHTML = '';
-  }
-
-  async function unlockAndAuthenticate() {
-    const errEl = document.getElementById('lockErr');
-    const btnEl = document.querySelector('.lock-btn');
-    btnEl.disabled = true;
-    btnEl.textContent = '인증 확인 중...';
-    errEl.textContent = '';
-    try {
-      await signInAnonymously(auth);
-      sessionStorage.setItem('auth_ok', '1');
-      document.getElementById('lockScreen').style.display = 'none';
-      startRealtimeListeners();
-    } catch (e) {
-      console.error(e);
-      errEl.textContent = 'Firebase 익명 인증 오류: 콘솔에서 익명 로그인을 활성화해주세요.';
-      sessionStorage.removeItem('auth_ok');
-    } finally {
-      btnEl.disabled = false;
-      btnEl.textContent = '접속하기';
-    }
-  }
-
   // 비밀번호 잠금 로직
   const PASSCODE = "0361";
-  window.checkPassword = async function() {
+  window.checkPassword = function() {
     const val = document.getElementById('pwInput').value.trim();
     if (val === PASSCODE) {
-      await unlockAndAuthenticate();
+      sessionStorage.setItem('auth_ok', '1');
+      document.getElementById('lockScreen').style.display = 'none';
+      document.getElementById('lockErr').textContent = '';
     } else {
       document.getElementById('lockErr').textContent = '비밀번호가 일치하지 않습니다.';
       document.getElementById('pwInput').value = '';
       document.getElementById('pwInput').focus();
     }
   };
-  window.lockApp = async function() {
+  window.lockApp = function() {
     sessionStorage.removeItem('auth_ok');
-    stopRealtimeListeners();
-    try { await signOut(auth); } catch (e) {}
     document.getElementById('pwInput').value = '';
-    document.getElementById('lockErr').textContent = '';
     document.getElementById('lockScreen').style.display = 'flex';
   };
   document.getElementById('pwInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') window.checkPassword();
   });
   if (sessionStorage.getItem('auth_ok') === '1') {
-    unlockAndAuthenticate();
+    document.getElementById('lockScreen').style.display = 'none';
   }
 
   // 토스트 알림
@@ -476,6 +408,43 @@
     clearTimeout(window._toastTimer);
     window._toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
   }
+
+  // 탭별 건수 배지 업데이트 (전체 연도 필터 연동)
+  function updateTabCounts() {
+    const yr = document.getElementById('yearFilter').value;
+    ['sigye', 'glass', 'belt'].forEach(col => {
+      const arr = store[col] || [];
+      const cnt = yr ? arr.filter(x => String(x.year) === yr).length : arr.length;
+      document.getElementById(`cnt-${col}`).textContent = cnt;
+    });
+  }
+
+  // 실시간 리스너 등록 (3개 컬렉션)
+  ['sigye', 'glass', 'belt'].forEach(colName => {
+    onSnapshot(collection(db, `records_${colName}`), (snap) => {
+      document.getElementById('syncDot').classList.remove('offline');
+      document.getElementById('syncText').textContent = '실시간 동기화됨';
+
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (a.order ?? -1) - (b.order ?? -1));
+      store[colName] = list;
+      isSeededCheckDone[colName] = true;
+
+      updateTabCounts();
+
+      const allChecked = isSeededCheckDone.sigye && isSeededCheckDone.glass && isSeededCheckDone.belt;
+      const totalCount = store.sigye.length + store.glass.length + store.belt.length;
+      document.getElementById('seedBtn').style.display = (allChecked && totalCount === 0) ? 'inline-block' : 'none';
+
+      if (currentTab === colName) {
+        renderTable();
+      }
+    }, (err) => {
+      console.error(err);
+      document.getElementById('syncDot').classList.add('offline');
+      document.getElementById('syncText').textContent = '연결 오류';
+    });
+  });
 
   // 초기 엑셀 데이터 일괄 업로드
   window.seedInitialData = async function() {
@@ -533,14 +502,19 @@
     return Math.round((done / steps.length) * 100);
   }
 
-  // 동그라미 체크 토글
+  // 동그라미 체크 순환 토글 (하얀원 '○' -> 파란색원 '●' -> 빨간색원 '부적합' -> 하얀원 '○')
   window.toggleStep = async function(id, stepIdx) {
     const item = store[currentTab].find(x => x.id === id);
     if (!item) return;
     const newSteps = [...item.steps];
     const cur = newSteps[stepIdx];
-    if (cur === '●') newSteps[stepIdx] = '○';
-    else newSteps[stepIdx] = '●';
+    if (cur === '●') {
+      newSteps[stepIdx] = '부적합';
+    } else if (cur === '부적합' || cur === 'red') {
+      newSteps[stepIdx] = '○';
+    } else {
+      newSteps[stepIdx] = '●';
+    }
 
     try {
       await updateDoc(doc(db, `records_${currentTab}`, id), {
@@ -551,6 +525,15 @@
       showToast('저장 실패: ' + e.message);
     }
   };
+
+  function renderCircleBtn(id, idx, val) {
+    const isBlue = val === '●';
+    const isRed = val === '부적합' || val === 'red';
+    const cls = isBlue ? 'filled' : (isRed ? 'fail' : '');
+    const symbol = (isBlue || isRed) ? '●' : '○';
+    const title = isBlue ? '완료 (클릭 시 빨간색원)' : (isRed ? '부적합 (클릭 시 하얀원)' : '미완료 (클릭 시 파란색원)');
+    return `<td><button type="button" class="circle-btn ${cls}" title="${title}" onclick="toggleStep('${id}', ${idx})">${symbol}</button></td>`;
+  }
 
   // 시계난연 진행상태 즉시 변경
   window.changeSigyeStatus = async function(id, newStatus) {
@@ -567,6 +550,7 @@
 
   // 테이블 및 요약 렌더링
   window.renderTable = function() {
+    updateTabCounts();
     const list = store[currentTab] || [];
     const yr = document.getElementById('yearFilter').value;
     const sigyeSt = document.getElementById('sigyeStatusFilter').value;
@@ -574,34 +558,55 @@
     const glassHead = document.getElementById('glassHeadFilter').value;
     const kw = document.getElementById('searchInput').value.trim().toLowerCase();
 
-    // 요약 통계 계산 (전체 기준)
-    let total = list.length, doneCnt = 0, waitCnt = 0, avgProg = 0;
+    // 연도 필터 적용 목록 (상단 요약 카드 및 탭 건수 연동 기준)
+    const yearFilteredList = yr ? list.filter(item => String(item.year) === yr) : list;
+
+    // 요약 통계 계산 (연도 필터 연동)
+    const summaryEl = document.getElementById('summaryBar');
+    const total = yearFilteredList.length;
+    const totalLabel = yr ? `${yr}년 건수` : '전체 건수';
+
     if (currentTab === 'sigye') {
-      doneCnt = list.filter(x => x.status === '완료').length;
-      waitCnt = total - doneCnt;
-      avgProg = total ? Math.round((doneCnt / total) * 100) : 0;
+      const doneCnt = yearFilteredList.filter(x => (x.status || '대기중') === '완료').length;
+      const inProgCnt = yearFilteredList.filter(x => (x.status || '대기중') === '진행중').length;
+      const waitCnt = yearFilteredList.filter(x => (x.status || '대기중') === '대기중').length;
+      const avgProg = total ? Math.round((doneCnt / total) * 100) : 0;
+
+      summaryEl.className = 'summary-bar cols-5';
+      summaryEl.innerHTML = `
+        <div class="stat-card"><div class="stat-label">${totalLabel}</div><div class="stat-val">${total}건</div></div>
+        <div class="stat-card"><div class="stat-label">완료 건수</div><div class="stat-val" style="color:#16a34a;">${doneCnt}건</div></div>
+        <div class="stat-card"><div class="stat-label">진행중</div><div class="stat-val" style="color:#2563eb;">${inProgCnt}건</div></div>
+        <div class="stat-card"><div class="stat-label">대기중</div><div class="stat-val" style="color:#d97706;">${waitCnt}건</div></div>
+        <div class="stat-card"><div class="stat-label">평균 진행률</div><div class="stat-val">${avgProg}%</div></div>
+      `;
     } else {
-      let sumP = 0;
-      list.forEach(x => {
-        const p = calcProgress(x.steps);
-        sumP += p;
-        if (p === 100) doneCnt++;
-        else waitCnt++;
+      let doneCnt = 0, sumP = 0;
+      yearFilteredList.forEach(x => {
+        const steps = x.steps || [];
+        sumP += calcProgress(steps);
+        if (currentTab === 'glass') {
+          // 창유리: 파쇄(11), 머리낙하(12) 모두 완료(파란색원 '●')인 경우 완료
+          if (steps[11] === '●' && steps[12] === '●') doneCnt++;
+        } else if (currentTab === 'belt') {
+          // 좌석안전띠: 부하해리력(8)이 파란색원('●')인 경우 완료
+          if (steps[8] === '●') doneCnt++;
+        }
       });
-      avgProg = total ? Math.round(sumP / total) : 0;
+      const inProgCnt = total - doneCnt;
+      const avgProg = total ? Math.round(sumP / total) : 0;
+
+      summaryEl.className = 'summary-bar';
+      summaryEl.innerHTML = `
+        <div class="stat-card"><div class="stat-label">${totalLabel}</div><div class="stat-val">${total}건</div></div>
+        <div class="stat-card"><div class="stat-label">완료 건수</div><div class="stat-val" style="color:#16a34a;">${doneCnt}건</div></div>
+        <div class="stat-card"><div class="stat-label">진행중</div><div class="stat-val" style="color:#d97706;">${inProgCnt}건</div></div>
+        <div class="stat-card"><div class="stat-label">평균 진행률</div><div class="stat-val">${avgProg}%</div></div>
+      `;
     }
 
-    document.getElementById('summaryBar').innerHTML = `
-      <div class="stat-card"><div class="stat-label">전체 건수</div><div class="stat-val">${total}건</div></div>
-      <div class="stat-card"><div class="stat-label">완료 건수</div><div class="stat-val" style="color:#16a34a;">${doneCnt}건</div></div>
-      <div class="stat-card"><div class="stat-label">진행/대기</div><div class="stat-val" style="color:#d97706;">${waitCnt}건</div></div>
-      <div class="stat-card"><div class="stat-label">평균 진행률</div><div class="stat-val">${avgProg}%</div></div>
-    `;
-
-    // 필터 적용
-    const filtered = list.filter(item => {
-      if (yr && String(item.year) !== yr) return false;
-
+    // 세부 필터 적용
+    const filtered = yearFilteredList.filter(item => {
       if (currentTab === 'sigye' && sigyeSt) {
         const curSt = item.status || '대기중';
         if (curSt !== sigyeSt) return false;
@@ -671,10 +676,7 @@
       </tr></thead><tbody>`;
       filtered.forEach(item => {
         const pct = calcProgress(item.steps);
-        const circles = (item.steps || []).map((val, idx) => {
-          const cls = val === '●' ? 'filled' : (val === '부적합' ? 'fail' : '');
-          return `<td><button type="button" class="circle-btn ${cls}" onclick="toggleStep('${item.id}', ${idx})">${val}</button></td>`;
-        }).join('');
+        const circles = (item.steps || []).map((val, idx) => renderCircleBtn(item.id, idx, val)).join('');
         html += `<tr>
           <td class="sticky-col">${esc(item.model)}</td>
           <td>${esc(item.year)}</td>
@@ -706,15 +708,8 @@
       filtered.forEach(item => {
         const pct = calcProgress(item.steps);
         const steps = item.steps || [];
-        const first8 = steps.slice(0, 8).map((val, idx) => {
-          const cls = val === '●' ? 'filled' : (val === '부적합' ? 'fail' : '');
-          return `<td><button type="button" class="circle-btn ${cls}" onclick="toggleStep('${item.id}', ${idx})">${val}</button></td>`;
-        }).join('');
-        const last2 = steps.slice(8).map((val, idx) => {
-          const realIdx = idx + 8;
-          const cls = val === '●' ? 'filled' : (val === '부적합' ? 'fail' : '');
-          return `<td><button type="button" class="circle-btn ${cls}" onclick="toggleStep('${item.id}', ${realIdx})">${val}</button></td>`;
-        }).join('');
+        const first8 = steps.slice(0, 8).map((val, idx) => renderCircleBtn(item.id, idx, val)).join('');
+        const last2 = steps.slice(8).map((val, idx) => renderCircleBtn(item.id, idx + 8, val)).join('');
         html += `<tr>
           <td class="sticky-col">${esc(item.model)}</td>
           <td>${esc(item.year)}</td>
@@ -794,16 +789,16 @@
     } else if (currentTab === 'glass') {
       fieldsHtml += `
         <div class="form-group full"><label>시험완료일</label><input type="date" id="f_doneDate" value="${esc(item?.doneDate || '')}" /></div>
-        <div class="form-group full"><label>단계별 상태 (특이사항 '부적합' 지정 가능)</label>
+        <div class="form-group full"><label>단계별 상태 (특이사항 빨간색원 지정 가능)</label>
           <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:6px; margin-top:4px;">
             ${GLASS_STEPS.map((stName, idx) => {
               const curV = item?.steps?.[idx] || '○';
               return `<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:4px 8px; border-radius:6px;">
                 <span style="font-size:12px;">${stName}</span>
                 <select id="f_step_${idx}" style="padding:2px 6px; font-size:12px;">
-                  <option value="○" ${curV==='○'?'selected':''}>○ (미완료)</option>
-                  <option value="●" ${curV==='●'?'selected':''}>● (완료)</option>
-                  <option value="부적합" ${curV==='부적합'?'selected':''}>부적합</option>
+                  <option value="○" ${curV==='○'?'selected':''}>○ (하얀원)</option>
+                  <option value="●" ${curV==='●'?'selected':''}>● (파란원)</option>
+                  <option value="부적합" ${curV==='부적합'||curV==='red'?'selected':''}>● (빨간원/부적합)</option>
                 </select>
               </div>`;
             }).join('')}
@@ -820,9 +815,9 @@
               return `<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:4px 8px; border-radius:6px;">
                 <span style="font-size:12px;">${stName}</span>
                 <select id="f_step_${idx}" style="padding:2px 6px; font-size:12px;">
-                  <option value="○" ${curV==='○'?'selected':''}>○ (미완료)</option>
-                  <option value="●" ${curV==='●'?'selected':''}>● (완료)</option>
-                  <option value="부적합" ${curV==='부적합'?'selected':''}>부적합</option>
+                  <option value="○" ${curV==='○'?'selected':''}>○ (하얀원)</option>
+                  <option value="●" ${curV==='●'?'selected':''}>● (파란원)</option>
+                  <option value="부적합" ${curV==='부적합'||curV==='red'?'selected':''}>● (빨간원/부적합)</option>
                 </select>
               </div>`;
             }).join('')}
