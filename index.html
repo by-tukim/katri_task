@@ -1039,6 +1039,7 @@
   let selectedScheduleId = '';
   let isOfflineMode = false;
   let isScheduleFromSeed = false;
+  let pendingScheduleSyncCount = 0;
 
   function loadScheduleCache() {
     try {
@@ -1055,6 +1056,31 @@
     try {
       localStorage.setItem('cache_records_schedule', JSON.stringify(list));
     } catch (e) {}
+  }
+
+  function normalizeScheduleVehicle(veh) {
+    const dayCount = (veh.headers || []).length || 14;
+    const cleanRows = (veh.rows || []).map(r => {
+      const cleanCells = Array.from({ length: dayCount }, (_, i) => {
+        const c = (r.cells || [])[i];
+        return {
+          colIdx: i,
+          colspan: c && c.colspan ? Number(c.colspan) : 1,
+          text: c && c.text ? String(c.text) : '',
+          status: c && c.text ? (c.status === '●' ? '●' : '○') : null
+        };
+      });
+      return {
+        pos: String(r.pos || ''),
+        part: String(r.part || ''),
+        partNo: String(r.partNo || ''),
+        cells: cleanCells
+      };
+    });
+    return {
+      ...veh,
+      rows: cleanRows
+    };
   }
 
   // =========================================================================
@@ -1315,14 +1341,41 @@
           setSyncStatus(true, '실시간 동기화');
           const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           if (key === 'schedule') {
+            if (snapshot.metadata.hasPendingWrites) return;
             items.sort((a, b) => (a.order || 999) - (b.order || 999));
+            const localCached = loadScheduleCache();
             if (items.length > 0) {
               isScheduleFromSeed = false;
-              state.schedule = items;
-              saveScheduleCache(items);
+              const unsyncedVehicles = [];
+              const merged = items.map(srvItem => {
+                const locItem = localCached.find(l => l.id === srvItem.id);
+                if (locItem && (locItem.clientUpdatedAt || 0) > (srvItem.clientUpdatedAt || 0)) {
+                  unsyncedVehicles.push(locItem);
+                  return locItem;
+                }
+                return srvItem;
+              });
+              localCached.forEach(locItem => {
+                if ((locItem.clientUpdatedAt || 0) > 0 && !merged.some(m => m.id === locItem.id)) {
+                  unsyncedVehicles.push(locItem);
+                  merged.push(locItem);
+                }
+              });
+              merged.sort((a, b) => (a.order || 999) - (b.order || 999));
+              state.schedule = merged;
+              saveScheduleCache(merged);
+
+              // 이전 새로고침으로 미처 DB에 올라가지 못한 로컬 수정본이 있으면 자동 재동기화
+              if (unsyncedVehicles.length > 0 && pendingScheduleSyncCount === 0) {
+                unsyncedVehicles.forEach(v => persistScheduleVehicle(v, true));
+              }
             } else {
               isScheduleFromSeed = true;
-              state.schedule = loadScheduleCache();
+              state.schedule = localCached;
+              const hasLocalEdits = localCached.some(v => (v.clientUpdatedAt || 0) > 0);
+              if (hasLocalEdits && pendingScheduleSyncCount === 0) {
+                persistScheduleVehicle(localCached[0], true);
+              }
             }
             if (!selectedScheduleId || !state.schedule.some(s => s.id === selectedScheduleId)) {
               selectedScheduleId = state.schedule[0]?.id || '';
@@ -2195,36 +2248,59 @@
   // =========================================================================
   // 시험일정표 편집 기능 (차량 추가/삭제, 행 추가/수정/삭제, 셀 상태/내용 편집)
   // =========================================================================
-  async function persistScheduleVehicle(veh) {
+  async function persistScheduleVehicle(veh, silent = false) {
+    const nowTs = Date.now();
+    const normalized = normalizeScheduleVehicle({ ...veh, clientUpdatedAt: nowTs });
+    const idx = state.schedule.findIndex(v => v.id === veh.id);
+    if (idx >= 0) {
+      state.schedule[idx] = normalized;
+    }
     saveScheduleCache(state.schedule);
+
     if (isOfflineMode) {
       renderScheduleTable();
-      return;
+      return true;
     }
+
+    pendingScheduleSyncCount++;
+    setSyncStatus(true, '저장 중...');
     try {
       // 초기 시드 상태였다면 전체 차량 문서를 Firestore에 함께 생성하여 누락 방지
       if (isScheduleFromSeed) {
         const batch = writeBatch(db);
-        state.schedule.forEach((v, idx) => {
-          const docId = v.id.startsWith('local_') ? `sched_${Date.now()}_${idx}` : v.id;
-          v.id = docId;
-          const { id, ...vData } = v;
+        state.schedule.forEach((v, i) => {
+          const docId = v.id.startsWith('local_') ? `sched_${nowTs}_${i}` : v.id;
+          const cleanV = normalizeScheduleVehicle({ ...v, id: docId, clientUpdatedAt: v.clientUpdatedAt || nowTs });
+          state.schedule[i] = cleanV;
+          const { id, ...vData } = cleanV;
           batch.set(doc(db, 'records_schedule', docId), { ...vData, updatedAt: serverTimestamp() }, { merge: true });
         });
-        selectedScheduleId = veh.id;
+        selectedScheduleId = state.schedule.find(v => v.sheetName === normalized.sheetName)?.id || normalized.id;
+        saveScheduleCache(state.schedule);
         await batch.commit();
         isScheduleFromSeed = false;
-        saveScheduleCache(state.schedule);
       } else {
-        const docId = veh.id.startsWith('local_') ? `sched_${Date.now()}` : veh.id;
-        veh.id = docId;
+        const docId = normalized.id.startsWith('local_') ? `sched_${nowTs}` : normalized.id;
+        normalized.id = docId;
+        if (idx >= 0) state.schedule[idx] = normalized;
         selectedScheduleId = docId;
-        const { id, ...data } = veh;
+        saveScheduleCache(state.schedule);
+        const { id, ...data } = normalized;
         await setDoc(doc(db, 'records_schedule', docId), { ...data, updatedAt: serverTimestamp() }, { merge: true });
       }
+      return true;
     } catch (e) {
-      console.error(e);
+      console.error('시험일정표 DB 저장 오류:', e);
+      if (!silent) {
+        showToast('기기에 임시 저장되었습니다. (DB 동기화 대기)');
+      }
       renderScheduleTable();
+      return false;
+    } finally {
+      pendingScheduleSyncCount = Math.max(0, pendingScheduleSyncCount - 1);
+      if (pendingScheduleSyncCount === 0 && !isOfflineMode) {
+        setSyncStatus(true, '실시간 동기화');
+      }
     }
   }
 
@@ -2234,7 +2310,8 @@
     const cell = veh.rows[rIdx].cells[cIdx];
     cell.status = cell.status === '●' ? '○' : '●';
     renderScheduleTable();
-    await persistScheduleVehicle(veh);
+    const ok = await persistScheduleVehicle(veh);
+    if (ok) showToast(cell.status === '●' ? '● 완료 처리되었습니다.' : '○ 미완료로 변경되었습니다.');
   };
 
   window.openSchedVehicleModal = function() {
@@ -2270,7 +2347,8 @@
       carName,
       isDoneSheet: false,
       headers,
-      rows
+      rows,
+      clientUpdatedAt: Date.now()
     };
 
     try {
@@ -2282,23 +2360,42 @@
         updateTabCounts();
         renderScheduleTable();
       } else {
+        pendingScheduleSyncCount++;
+        setSyncStatus(true, '저장 중...');
         if (isScheduleFromSeed) {
           const batch = writeBatch(db);
           state.schedule.forEach(v => {
-            const { id, ...vData } = v;
+            const { id, ...vData } = normalizeScheduleVehicle(v);
             batch.set(doc(db, 'records_schedule', id), { ...vData, updatedAt: serverTimestamp() }, { merge: true });
           });
           await batch.commit();
           isScheduleFromSeed = false;
         }
-        const ref = await addDoc(collection(db, 'records_schedule'), { ...newVeh, updatedAt: serverTimestamp() });
+        const ref = await addDoc(collection(db, 'records_schedule'), { ...normalizeScheduleVehicle(newVeh), updatedAt: serverTimestamp() });
+        newVeh.id = ref.id;
+        state.schedule.push(newVeh);
         selectedScheduleId = ref.id;
+        saveScheduleCache(state.schedule);
+        updateTabCounts();
+        renderScheduleTable();
       }
       closeSchedVehicleModal();
       showToast(`'${title}' 차량 일정표가 추가되었습니다.`);
     } catch (err) {
       console.error(err);
-      showToast('차량 추가 중 오류가 발생했습니다.');
+      newVeh.id = 'local_sched_' + Date.now();
+      state.schedule.push(newVeh);
+      selectedScheduleId = newVeh.id;
+      saveScheduleCache(state.schedule);
+      updateTabCounts();
+      renderScheduleTable();
+      closeSchedVehicleModal();
+      showToast(`'${title}' 차량 일정표가 기기에 저장되었습니다.`);
+    } finally {
+      pendingScheduleSyncCount = Math.max(0, pendingScheduleSyncCount - 1);
+      if (pendingScheduleSyncCount === 0 && !isOfflineMode) {
+        setSyncStatus(true, '실시간 동기화');
+      }
     }
   };
 
@@ -2461,8 +2558,21 @@
 
     closeSchedCellModal();
     renderScheduleTable();
-    await persistScheduleVehicle(veh);
-    showToast('시험항목이 저장되었습니다.');
+    const ok = await persistScheduleVehicle(veh);
+    if (ok) showToast('시험항목이 저장되었습니다.');
+  };
+
+  window.clearScheduleCell = async function() {
+    const veh = state.schedule.find(v => v.id === selectedScheduleId);
+    const rIdx = parseInt(document.getElementById('sc_rowIdx').value, 10);
+    const cIdx = parseInt(document.getElementById('sc_cellIdx').value, 10);
+    if (!veh || !veh.rows[rIdx]) return;
+
+    veh.rows[rIdx].cells[cIdx] = { colIdx: cIdx, colspan: 1, text: '', status: null };
+    closeSchedCellModal();
+    renderScheduleTable();
+    const ok = await persistScheduleVehicle(veh);
+    if (ok) showToast('시험항목이 비워졌습니다.');
   };
 
   window.clearScheduleCell = async function() {
