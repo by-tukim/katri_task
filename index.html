@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -139,17 +139,40 @@
     .table-outer {
       position: relative;
     }
+    .table-zoom-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px; padding: 0 2px; font-size: 12px; color: var(--muted);
+    }
+    .table-zoom-controls {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--card); border: 1px solid #cbd5e1; border-radius: 8px; padding: 2px 4px;
+    }
+    .zoom-step-btn {
+      background: #f1f5f9; border: none; color: #1e293b;
+      width: 26px; height: 24px; border-radius: 6px; font-size: 15px; font-weight: 800;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .zoom-step-btn:active { background: #cbd5e1; }
+    .zoom-val-btn {
+      background: transparent; border: none; color: var(--primary);
+      padding: 0 6px; height: 24px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
     .table-wrap {
       background: var(--card); border-radius: 12px; border: 1px solid #e2e8f0;
-      overflow: auto; max-height: calc(100vh - 185px);
+      overflow: auto; max-height: calc(100vh - 205px);
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
       -webkit-overflow-scrolling: touch; position: relative;
-      touch-action: pan-x pan-y;
+      touch-action: pan-x pan-y pinch-zoom;
+    }
+    .zoom-sizer {
+      position: relative;
+      min-width: 100%;
     }
     .zoom-stage {
       display: inline-block;
       min-width: 100%;
       transform-origin: 0 0;
+      will-change: transform;
     }
     /* 모바일 테이블 핀치 줌 배율 배지 */
     .zoom-indicator {
@@ -511,11 +534,21 @@
   <!-- 시험일정표 차량 빠른 선택 바 -->
   <div id="schedVehicleBar" class="sched-vehicle-bar" style="display:none;"></div>
 
-  <!-- 데이터 테이블 (모바일 두 손가락 핀치 줌 지원) -->
+  <!-- 데이터 테이블 (모바일 두 손가락 핀치 줌 및 배율 버튼 지원) -->
   <div class="table-outer">
+    <div class="table-zoom-bar">
+      <span>💡 표 영역을 두 손가락으로 오므리거나 펼쳐 확대·축소할 수 있습니다</span>
+      <div class="table-zoom-controls">
+        <button type="button" class="zoom-step-btn" onclick="stepTableZoom(-0.15)" title="축소">−</button>
+        <button type="button" class="zoom-val-btn" id="zoomBarLabel" onclick="resetTableZoom()" title="100% 복원">100%</button>
+        <button type="button" class="zoom-step-btn" onclick="stepTableZoom(0.15)" title="확대">+</button>
+      </div>
+    </div>
     <div class="table-wrap" id="tableWrap">
-      <div class="zoom-stage" id="zoomStage">
-        <table id="dataTable"></table>
+      <div class="zoom-sizer" id="zoomSizer">
+        <div class="zoom-stage" id="zoomStage">
+          <table id="dataTable"></table>
+        </div>
       </div>
     </div>
     <div class="zoom-indicator" id="zoomIndicator">
@@ -939,15 +972,32 @@
   let tableZoomScale = 1.0;
   const MIN_TABLE_ZOOM = 0.5;
   const MAX_TABLE_ZOOM = 2.5;
-  const supportsCssZoom = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('zoom', '1');
+
+  function syncZoomSizerBounds() {
+    const zoomSizer = document.getElementById('zoomSizer');
+    const zoomStage = document.getElementById('zoomStage');
+    const dataTable = document.getElementById('dataTable');
+    if (!zoomSizer || !zoomStage || !dataTable) return;
+
+    if (Math.abs(tableZoomScale - 1) <= 0.01) {
+      zoomStage.style.transform = '';
+      zoomSizer.style.width = '';
+      zoomSizer.style.height = '';
+    } else {
+      zoomStage.style.transform = `scale(${tableZoomScale})`;
+      const baseW = dataTable.scrollWidth || zoomStage.offsetWidth;
+      const baseH = dataTable.scrollHeight || zoomStage.offsetHeight;
+      zoomSizer.style.width = `${Math.ceil(baseW * tableZoomScale)}px`;
+      zoomSizer.style.height = `${Math.ceil(baseH * tableZoomScale)}px`;
+    }
+  }
 
   function applyTableZoom(newScale, focalClientX = null, focalClientY = null) {
     const tableWrap = document.getElementById('tableWrap');
-    const zoomStage = document.getElementById('zoomStage');
-    const dataTable = document.getElementById('dataTable');
     const indicator = document.getElementById('zoomIndicator');
     const percentEl = document.getElementById('zoomPercent');
-    if (!tableWrap || !zoomStage || !dataTable) return;
+    const barLabelEl = document.getElementById('zoomBarLabel');
+    if (!tableWrap) return;
 
     const prevScale = tableZoomScale;
     const clamped = Math.min(MAX_TABLE_ZOOM, Math.max(MIN_TABLE_ZOOM, Math.round(newScale * 100) / 100));
@@ -963,33 +1013,17 @@
       contentY = (tableWrap.scrollTop + relY) / prevScale;
     }
 
-    if (supportsCssZoom) {
-      // Chrome / iOS Safari / Edge: CSS zoom을 사용하면 sticky 헤더/열 및 네이티브 스크롤이 완벽 유지됨
-      dataTable.style.zoom = clamped === 1 ? '' : String(clamped);
-      zoomStage.style.transform = '';
-      zoomStage.style.width = '';
-      zoomStage.style.height = '';
-    } else {
-      // 구형 브라우저 폴백: transform scale + 컨테이너 크기 보정
-      dataTable.style.zoom = '';
-      if (clamped === 1) {
-        zoomStage.style.transform = '';
-        zoomStage.style.width = '';
-        zoomStage.style.height = '';
-      } else {
-        zoomStage.style.transform = `scale(${clamped})`;
-        zoomStage.style.width = `${dataTable.offsetWidth * clamped}px`;
-        zoomStage.style.height = `${dataTable.offsetHeight * clamped}px`;
-      }
-    }
+    syncZoomSizerBounds();
 
     if (focalClientX !== null && focalClientY !== null) {
       tableWrap.scrollLeft = Math.max(0, contentX * clamped - relX);
       tableWrap.scrollTop = Math.max(0, contentY * clamped - relY);
     }
 
+    const pct = Math.round(clamped * 100);
+    if (barLabelEl) barLabelEl.textContent = `${pct}%`;
     if (percentEl && indicator) {
-      percentEl.textContent = Math.round(clamped * 100);
+      percentEl.textContent = pct;
       if (Math.abs(clamped - 1) > 0.02) {
         indicator.classList.add('visible');
       } else {
@@ -997,6 +1031,10 @@
       }
     }
   }
+
+  window.stepTableZoom = function(delta) {
+    applyTableZoom(tableZoomScale + delta);
+  };
 
   window.resetTableZoom = function() {
     applyTableZoom(1.0);
@@ -1012,9 +1050,7 @@
     let startScale = 1.0;
 
     function getTouchDistance(t1, t2) {
-      const dx = t1.clientX - t2.clientX;
-      const dy = t1.clientY - t2.clientY;
-      return Math.hypot(dx, dy);
+      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
     }
 
     function getTouchMidpoint(t1, t2) {
@@ -1033,12 +1069,20 @@
     }, { passive: true });
 
     tableWrap.addEventListener('touchmove', (e) => {
-      if (isPinching && e.touches.length === 2 && startDist > 0) {
-        e.preventDefault(); // 브라우저 기본 화면 바운스/줌 방지
-        const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
-        const mid = getTouchMidpoint(e.touches[0], e.touches[1]);
-        const nextScale = startScale * (currentDist / startDist);
-        applyTableZoom(nextScale, mid.x, mid.y);
+      if (e.touches.length === 2) {
+        if (!isPinching) {
+          isPinching = true;
+          startDist = getTouchDistance(e.touches[0], e.touches[1]);
+          startScale = tableZoomScale;
+          return;
+        }
+        if (startDist > 0) {
+          if (e.cancelable) e.preventDefault();
+          const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
+          const mid = getTouchMidpoint(e.touches[0], e.touches[1]);
+          const nextScale = startScale * (currentDist / startDist);
+          applyTableZoom(nextScale, mid.x, mid.y);
+        }
       }
     }, { passive: false });
 
@@ -1051,6 +1095,18 @@
 
     tableWrap.addEventListener('touchend', endPinch, { passive: true });
     tableWrap.addEventListener('touchcancel', endPinch, { passive: true });
+
+    // iOS Safari 전용 제스처 이벤트 보조 지원
+    let gestureStartScale = 1.0;
+    tableWrap.addEventListener('gesturestart', (e) => {
+      if (e.cancelable) e.preventDefault();
+      gestureStartScale = tableZoomScale;
+    }, { passive: false });
+
+    tableWrap.addEventListener('gesturechange', (e) => {
+      if (e.cancelable) e.preventDefault();
+      applyTableZoom(gestureStartScale * (e.scale || 1), e.clientX, e.clientY);
+    }, { passive: false });
   }
 
   // =========================================================================
