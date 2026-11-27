@@ -1022,9 +1022,9 @@
 
   // 용역수행실적 기본 예시 데이터 (DB 비어있을 때 로컬 확인용)
   const SERVICE_INITIAL_DATA = [
-    { id: "local_svc_1", seq: 1, year: "2026", serviceName: "자동차 창유리 안전기준 시험 용역", cost: 45000000, startDate: "2026-03-01", endDate: "2026-11-30" },
-    { id: "local_svc_2", seq: 2, year: "2026", serviceName: "좌석안전띠 내구성 및 동하중 시험 위탁용역", cost: 32000000, startDate: "2026-04-15", endDate: "2026-10-31" },
-    { id: "local_svc_3", seq: 3, year: "2025", serviceName: "차실내장재 연소성 평가 시험 용역", cost: 28000000, startDate: "2025-05-01", endDate: "2025-12-15" }
+    { id: "local_svc_1", seq: 1, year: "2026", serviceName: "자동차 창유리 안전기준 시험 용역", cost: 45000000, client: "현대자동차", startDate: "2026-03-01", endDate: "2026-11-30" },
+    { id: "local_svc_2", seq: 2, year: "2026", serviceName: "좌석안전띠 내구성 및 동하중 시험 위탁용역", cost: 32000000, client: "현대모비스", startDate: "2026-04-15", endDate: "2026-10-31" },
+    { id: "local_svc_3", seq: 3, year: "2025", serviceName: "차실내장재 연소성 평가 시험 용역", cost: 28000000, client: "기아", startDate: "2025-05-01", endDate: "2025-12-15" }
   ];
 
   // 전역 상태
@@ -1417,7 +1417,7 @@
       searchInput.placeholder = '좌석위치, 부품명, 시험항목 검색...';
     } else if (tab === 'service') {
       mainAddBtn.textContent = '+ 용역 등록';
-      searchInput.placeholder = '연도, 용역명 검색...';
+      searchInput.placeholder = '연도, 용역명, 위탁자 검색...';
     } else {
       mainAddBtn.textContent = '+ 신규 등록';
       searchInput.placeholder = '제작사, 차명, 시험항목, 진행사항 검색...';
@@ -1831,7 +1831,7 @@
       .filter(item => {
         if (year && String(item.year) !== year) return false;
         if (q) {
-          const hay = `${item.year} ${item.serviceName} ${item.startDate} ${item.endDate}`.toLowerCase();
+          const hay = `${item.year} ${item.serviceName} ${item.client || ''} ${item.startDate} ${item.endDate}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -1869,6 +1869,7 @@
           <th style="width:90px;">연도</th>
           <th style="min-width:240px;">용역명</th>
           <th style="min-width:140px;">용역비</th>
+          <th style="min-width:130px;">위탁자</th>
           <th style="min-width:300px;">용역기간 (시작일 ~ 종료일)</th>
           <th style="width:70px;">수정</th>
         </tr>
@@ -1877,7 +1878,7 @@
     `;
 
     if (list.length === 0) {
-      html += `<tr><td colspan="6" style="padding:30px; color:#64748b;">조건에 맞는 용역수행실적 데이터가 없습니다. 상단 '+ 용역 등록' 버튼으로 추가해주세요.</td></tr>`;
+      html += `<tr><td colspan="7" style="padding:30px; color:#64748b;">조건에 맞는 용역수행실적 데이터가 없습니다. 상단 '+ 용역 등록' 버튼으로 추가해주세요.</td></tr>`;
     } else {
       list.forEach((item, idx) => {
         const displaySeq = item.seq || (idx + 1);
@@ -1887,6 +1888,7 @@
             <td style="font-weight:700;">${escapeHtml(item.year || '-')}</td>
             <td style="text-align:left; font-weight:700; color:#0f172a; padding-left:14px;">${escapeHtml(item.serviceName || '')}</td>
             <td style="text-align:right; font-weight:700; color:var(--primary); padding-right:14px;">${formatNumber(item.cost)}원</td>
+            <td style="font-weight:600; color:#334155;">${escapeHtml(item.client || '-')}</td>
             <td>
               <div class="period-picker">
                 <input type="date" class="period-date-input" value="${escapeHtml(item.startDate || '')}" onchange="updateServicePeriod('${item.id}', 'startDate', this.value)" title="시작일 선택" />
@@ -2000,6 +2002,7 @@
         year: document.getElementById('yearFilter').value || '2026',
         serviceName: '',
         cost: '',
+        client: '',
         startDate: '',
         endDate: ''
       };
@@ -2008,7 +2011,8 @@
         <div class="form-group"><label>순번 *</label><input type="number" id="f_seq" min="1" value="${escapeHtml(d.seq)}" required /></div>
         <div class="form-group"><label>연도 *</label><input type="text" id="f_year" maxlength="4" value="${escapeHtml(d.year)}" placeholder="예: 2026" required /></div>
         <div class="form-group full"><label>용역명 *</label><input type="text" id="f_serviceName" value="${escapeHtml(d.serviceName)}" placeholder="용역명을 입력하세요" required /></div>
-        <div class="form-group full"><label>용역비 (원) *</label><input type="number" id="f_cost" min="0" step="1" value="${escapeHtml(d.cost)}" placeholder="예: 35000000" required /></div>
+        <div class="form-group"><label>용역비 (원) *</label><input type="number" id="f_cost" min="0" step="1" value="${escapeHtml(d.cost)}" placeholder="예: 35000000" required /></div>
+        <div class="form-group"><label>위탁자</label><input type="text" id="f_client" value="${escapeHtml(d.client || '')}" placeholder="예: 현대자동차" /></div>
         <div class="form-group"><label>용역기간 시작일</label><input type="date" id="f_startDate" value="${escapeHtml(d.startDate || '')}" /></div>
         <div class="form-group"><label>용역기간 종료일</label><input type="date" id="f_endDate" value="${escapeHtml(d.endDate || '')}" /></div>
       `;
@@ -2079,6 +2083,7 @@
         year: document.getElementById('f_year').value.trim(),
         serviceName: document.getElementById('f_serviceName').value.trim(),
         cost: Number(document.getElementById('f_cost').value) || 0,
+        client: document.getElementById('f_client').value.trim(),
         startDate,
         endDate
       };
@@ -2455,6 +2460,7 @@
         '연도': x.year,
         '용역명': x.serviceName,
         '용역비': Number(x.cost) || 0,
+        '위탁자': x.client || '',
         '용역기간': (x.startDate || x.endDate) ? `${x.startDate || ''} ~ ${x.endDate || ''}` : ''
       }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(serviceRows), '용역수행실적');
