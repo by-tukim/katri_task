@@ -140,8 +140,73 @@
       position: relative;
     }
     .table-zoom-bar {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 6px; padding: 0 2px; font-size: 12px; color: var(--muted);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin-bottom: 8px; padding: 6px 10px;
+      background: var(--card); border: 1px solid #cbd5e1; border-radius: 10px;
+      font-size: 12px; color: var(--muted);
+    }
+    .table-zoom-hint {
+      flex: 1; min-width: 0; line-height: 1.3;
+    }
+    .table-zoom-controls {
+      display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+      background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 2px 4px;
+    }
+    .zoom-step-btn {
+      background: #e2e8f0; border: none; color: #0f172a;
+      width: 32px; height: 28px; border-radius: 6px; font-size: 16px; font-weight: 800;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+      touch-action: manipulation;
+    }
+    .zoom-step-btn:active { background: #cbd5e1; }
+    .zoom-val-btn {
+      background: transparent; border: none; color: var(--primary);
+      padding: 0 8px; height: 28px; font-size: 13px; font-weight: 800; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .table-wrap {
+      background: var(--card); border-radius: 12px; border: 1px solid #e2e8f0;
+      overflow: auto; max-height: calc(100vh - 220px);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      -webkit-overflow-scrolling: touch; position: relative;
+      touch-action: pan-x pan-y;
+    }
+    .zoom-sizer {
+      position: relative;
+      min-width: 100%;
+    }
+    .zoom-stage {
+      display: inline-block;
+      min-width: 100%;
+      transform-origin: 0 0;
+    }
+    /* 모바일/태블릿 하단 고정 배율 컨트롤 바 (상시 표시) */
+    .zoom-indicator {
+      position: fixed; bottom: 16px; right: 14px; z-index: 450;
+      background: rgba(15, 23, 42, 0.92); color: #fff;
+      padding: 6px 8px; border-radius: 999px;
+      font-size: 13px; font-weight: 700;
+      display: inline-flex; align-items: center; gap: 4px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .zoom-float-btn {
+      background: rgba(255,255,255,0.18); border: none; color: #fff;
+      width: 32px; height: 32px; border-radius: 50%; font-size: 17px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; touch-action: manipulation;
+    }
+    .zoom-float-btn:active {
+      background: rgba(255,255,255,0.38);
+    }
+    .zoom-reset-btn {
+      background: transparent; border: none; color: #fff;
+      padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800;
+      cursor: pointer; touch-action: manipulation; min-width: 52px; text-align: center;
+    }
+    .zoom-reset-btn:active {
+      background: rgba(255,255,255,0.22);
     }
     .table-zoom-controls {
       display: inline-flex; align-items: center; gap: 4px;
@@ -537,7 +602,7 @@
   <!-- 데이터 테이블 (모바일 두 손가락 핀치 줌 및 배율 버튼 지원) -->
   <div class="table-outer">
     <div class="table-zoom-bar">
-      <span>💡 표 영역을 두 손가락으로 오므리거나 펼쳐 확대·축소할 수 있습니다</span>
+      <span class="table-zoom-hint">💡 두 손가락으로 오므리거나 펼쳐 확대·축소 가능</span>
       <div class="table-zoom-controls">
         <button type="button" class="zoom-step-btn" onclick="stepTableZoom(-0.15)" title="축소">−</button>
         <button type="button" class="zoom-val-btn" id="zoomBarLabel" onclick="resetTableZoom()" title="100% 복원">100%</button>
@@ -552,8 +617,9 @@
       </div>
     </div>
     <div class="zoom-indicator" id="zoomIndicator">
-      <span>🔍 <span id="zoomPercent">100</span>%</span>
-      <button type="button" class="zoom-reset-btn" onclick="resetTableZoom()">100% 복원</button>
+      <button type="button" class="zoom-float-btn" onclick="stepTableZoom(-0.15)" aria-label="축소">−</button>
+      <button type="button" class="zoom-reset-btn" onclick="resetTableZoom()" title="100% 복원">🔍 <span id="zoomPercent">100</span>%</button>
+      <button type="button" class="zoom-float-btn" onclick="stepTableZoom(0.15)" aria-label="확대">+</button>
     </div>
   </div>
 </main>
@@ -972,12 +1038,21 @@
   let tableZoomScale = 1.0;
   const MIN_TABLE_ZOOM = 0.5;
   const MAX_TABLE_ZOOM = 2.5;
+  const supportsCssZoom = typeof document.documentElement.style.zoom !== 'undefined';
 
   function syncZoomSizerBounds() {
     const zoomSizer = document.getElementById('zoomSizer');
     const zoomStage = document.getElementById('zoomStage');
     const dataTable = document.getElementById('dataTable');
     if (!zoomSizer || !zoomStage || !dataTable) return;
+
+    if (supportsCssZoom) {
+      zoomStage.style.transform = '';
+      zoomSizer.style.width = '';
+      zoomSizer.style.height = '';
+      zoomStage.style.zoom = Math.abs(tableZoomScale - 1) <= 0.01 ? '' : String(tableZoomScale);
+      return;
+    }
 
     if (Math.abs(tableZoomScale - 1) <= 0.01) {
       zoomStage.style.transform = '';
@@ -994,7 +1069,6 @@
 
   function applyTableZoom(newScale, focalClientX = null, focalClientY = null) {
     const tableWrap = document.getElementById('tableWrap');
-    const indicator = document.getElementById('zoomIndicator');
     const percentEl = document.getElementById('zoomPercent');
     const barLabelEl = document.getElementById('zoomBarLabel');
     if (!tableWrap) return;
@@ -1022,14 +1096,7 @@
 
     const pct = Math.round(clamped * 100);
     if (barLabelEl) barLabelEl.textContent = `${pct}%`;
-    if (percentEl && indicator) {
-      percentEl.textContent = pct;
-      if (Math.abs(clamped - 1) > 0.02) {
-        indicator.classList.add('visible');
-      } else {
-        indicator.classList.remove('visible');
-      }
-    }
+    if (percentEl) percentEl.textContent = pct;
   }
 
   window.stepTableZoom = function(delta) {
