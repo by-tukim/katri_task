@@ -1250,10 +1250,10 @@
 
   function initFirestoreListeners() {
     const collections = [
-      { key: 'sigye', name: 'perf_sigye' },
-      { key: 'glass', name: 'perf_glass' },
-      { key: 'belt', name: 'perf_belt' },
-      { key: 'schedule', name: 'perf_schedule' }
+      { key: 'sigye', name: 'records_sigye' },
+      { key: 'glass', name: 'records_glass' },
+      { key: 'belt', name: 'records_belt' },
+      { key: 'schedule', name: 'records_schedule' }
     ];
 
     let loadedCount = 0;
@@ -1308,19 +1308,19 @@
     try {
       const batch = writeBatch(db);
       SEED_DATA.sigye.forEach(item => {
-        const ref = doc(collection(db, 'perf_sigye'));
+        const ref = doc(collection(db, 'records_sigye'));
         batch.set(ref, { ...item, updatedAt: serverTimestamp() });
       });
       SEED_DATA.glass.forEach(item => {
-        const ref = doc(collection(db, 'perf_glass'));
+        const ref = doc(collection(db, 'records_glass'));
         batch.set(ref, { ...item, updatedAt: serverTimestamp() });
       });
       SEED_DATA.belt.forEach(item => {
-        const ref = doc(collection(db, 'perf_belt'));
+        const ref = doc(collection(db, 'records_belt'));
         batch.set(ref, { ...item, updatedAt: serverTimestamp() });
       });
       SCHEDULE_SEED_DATA.forEach(item => {
-        const ref = doc(db, 'perf_schedule', item.id);
+        const ref = doc(db, 'records_schedule', item.id);
         batch.set(ref, { ...item, updatedAt: serverTimestamp() });
       });
       await batch.commit();
@@ -1800,7 +1800,7 @@
     item.steps = steps;
     renderTable();
 
-    const colName = type === 'glass' ? 'perf_glass' : 'perf_belt';
+    const colName = type === 'glass' ? 'records_glass' : 'records_belt';
     try {
       if (!isOfflineMode && !id.startsWith('local_')) {
         await updateDoc(doc(db, colName, id), {
@@ -1874,7 +1874,7 @@
   window.saveItem = async function(e) {
     e.preventDefault();
     const id = document.getElementById('editId').value;
-    const colMap = { sigye: 'perf_sigye', glass: 'perf_glass', belt: 'perf_belt' };
+    const colMap = { sigye: 'records_sigye', glass: 'records_glass', belt: 'records_belt' };
     const colName = colMap[currentTab];
 
     let payload = {
@@ -1931,7 +1931,7 @@
     const ok = await showConfirm('항목 삭제', '선택한 항목을 정말 삭제하시겠습니까?', '삭제');
     if (!ok) return;
 
-    const colMap = { sigye: 'perf_sigye', glass: 'perf_glass', belt: 'perf_belt' };
+    const colMap = { sigye: 'records_sigye', glass: 'records_glass', belt: 'records_belt' };
     try {
       if (isOfflineMode || id.startsWith('local_')) {
         state[currentTab] = state[currentTab].filter(x => x.id !== id);
@@ -1958,7 +1958,7 @@
     }
     try {
       const { id, ...data } = veh;
-      await updateDoc(doc(db, 'perf_schedule', id), { ...data, updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, 'records_schedule', id), { ...data, updatedAt: serverTimestamp() });
     } catch (e) {
       console.error(e);
       renderScheduleTable();
@@ -2018,7 +2018,7 @@
         updateTabCounts();
         renderScheduleTable();
       } else {
-        const ref = await addDoc(collection(db, 'perf_schedule'), { ...newVeh, updatedAt: serverTimestamp() });
+        const ref = await addDoc(collection(db, 'records_schedule'), { ...newVeh, updatedAt: serverTimestamp() });
         selectedScheduleId = ref.id;
       }
       closeSchedVehicleModal();
@@ -2042,7 +2042,7 @@
         updateTabCounts();
         renderScheduleTable();
       } else {
-        await deleteDoc(doc(db, 'perf_schedule', veh.id));
+        await deleteDoc(doc(db, 'records_schedule', veh.id));
       }
       showToast('차량 일정표가 삭제되었습니다.');
     } catch (err) {
