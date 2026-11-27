@@ -815,7 +815,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import {
-    initializeFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+    initializeFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
     onSnapshot, writeBatch, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -1038,6 +1038,24 @@
   };
   let selectedScheduleId = '';
   let isOfflineMode = false;
+  let isScheduleFromSeed = false;
+
+  function loadScheduleCache() {
+    try {
+      const cached = localStorage.getItem('cache_records_schedule');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA));
+  }
+
+  function saveScheduleCache(list) {
+    try {
+      localStorage.setItem('cache_records_schedule', JSON.stringify(list));
+    } catch (e) {}
+  }
 
   // =========================================================================
   // 모바일 두 손가락 핀치 줌 (모든 시트의 모든 테이블에 적용)
@@ -1268,7 +1286,7 @@
     state.sigye = SEED_DATA.sigye.map((d, i) => ({ id: 'local_sigye_' + i, ...d }));
     state.glass = SEED_DATA.glass.map((d, i) => ({ id: 'local_glass_' + i, ...d }));
     state.belt = SEED_DATA.belt.map((d, i) => ({ id: 'local_belt_' + i, ...d }));
-    state.schedule = JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA));
+    state.schedule = loadScheduleCache();
     if (state.service.length === 0) {
       state.service = JSON.parse(JSON.stringify(SERVICE_INITIAL_DATA));
     }
@@ -1298,7 +1316,14 @@
           const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
           if (key === 'schedule') {
             items.sort((a, b) => (a.order || 999) - (b.order || 999));
-            state.schedule = items.length > 0 ? items : JSON.parse(JSON.stringify(SCHEDULE_SEED_DATA));
+            if (items.length > 0) {
+              isScheduleFromSeed = false;
+              state.schedule = items;
+              saveScheduleCache(items);
+            } else {
+              isScheduleFromSeed = true;
+              state.schedule = loadScheduleCache();
+            }
             if (!selectedScheduleId || !state.schedule.some(s => s.id === selectedScheduleId)) {
               selectedScheduleId = state.schedule[0]?.id || '';
             }
@@ -2171,13 +2196,32 @@
   // 시험일정표 편집 기능 (차량 추가/삭제, 행 추가/수정/삭제, 셀 상태/내용 편집)
   // =========================================================================
   async function persistScheduleVehicle(veh) {
-    if (isOfflineMode || veh.id.startsWith('local_')) {
+    saveScheduleCache(state.schedule);
+    if (isOfflineMode) {
       renderScheduleTable();
       return;
     }
     try {
-      const { id, ...data } = veh;
-      await updateDoc(doc(db, 'records_schedule', id), { ...data, updatedAt: serverTimestamp() });
+      // 초기 시드 상태였다면 전체 차량 문서를 Firestore에 함께 생성하여 누락 방지
+      if (isScheduleFromSeed) {
+        const batch = writeBatch(db);
+        state.schedule.forEach((v, idx) => {
+          const docId = v.id.startsWith('local_') ? `sched_${Date.now()}_${idx}` : v.id;
+          v.id = docId;
+          const { id, ...vData } = v;
+          batch.set(doc(db, 'records_schedule', docId), { ...vData, updatedAt: serverTimestamp() }, { merge: true });
+        });
+        selectedScheduleId = veh.id;
+        await batch.commit();
+        isScheduleFromSeed = false;
+        saveScheduleCache(state.schedule);
+      } else {
+        const docId = veh.id.startsWith('local_') ? `sched_${Date.now()}` : veh.id;
+        veh.id = docId;
+        selectedScheduleId = docId;
+        const { id, ...data } = veh;
+        await setDoc(doc(db, 'records_schedule', docId), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+      }
     } catch (e) {
       console.error(e);
       renderScheduleTable();
@@ -2234,9 +2278,19 @@
         newVeh.id = 'local_sched_' + Date.now();
         state.schedule.push(newVeh);
         selectedScheduleId = newVeh.id;
+        saveScheduleCache(state.schedule);
         updateTabCounts();
         renderScheduleTable();
       } else {
+        if (isScheduleFromSeed) {
+          const batch = writeBatch(db);
+          state.schedule.forEach(v => {
+            const { id, ...vData } = v;
+            batch.set(doc(db, 'records_schedule', id), { ...vData, updatedAt: serverTimestamp() }, { merge: true });
+          });
+          await batch.commit();
+          isScheduleFromSeed = false;
+        }
         const ref = await addDoc(collection(db, 'records_schedule'), { ...newVeh, updatedAt: serverTimestamp() });
         selectedScheduleId = ref.id;
       }
@@ -2255,9 +2309,19 @@
     if (!ok) return;
 
     try {
-      if (isOfflineMode || veh.id.startsWith('local_')) {
+      if (isOfflineMode || isScheduleFromSeed || veh.id.startsWith('local_')) {
         state.schedule = state.schedule.filter(v => v.id !== veh.id);
         selectedScheduleId = state.schedule[0]?.id || '';
+        saveScheduleCache(state.schedule);
+        if (!isOfflineMode && isScheduleFromSeed) {
+          const batch = writeBatch(db);
+          state.schedule.forEach(v => {
+            const { id, ...vData } = v;
+            batch.set(doc(db, 'records_schedule', id), { ...vData, updatedAt: serverTimestamp() }, { merge: true });
+          });
+          await batch.commit();
+          isScheduleFromSeed = false;
+        }
         updateTabCounts();
         renderScheduleTable();
       } else {
